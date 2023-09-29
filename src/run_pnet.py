@@ -6,17 +6,14 @@ import os
 import sys
 
 ####### TODO: figure out module importing 
-sys.path.append("..")
+import pnet_loader
+import util
+import ReactomeNetwork # this loads
+import Pnet # this fails to load bc of how it imports ReactomeNetwork...
 
-from src import pnet_loader
-from src import util
-from src import ReactomeNetwork # this loads
-from src import Pnet # this fails to load bc of how it imports ReactomeNetwork...
 
-# Add the path "../pnet_germline/src" to the upstream script's directory
-upstream_dir = os.path.join('../..', 'pnet_germline', 'src')
-sys.path.append(upstream_dir)
-import utils # from Gwen's repo
+import data_manipulation
+import vcf_manipulation
 
 
 import wandb
@@ -113,10 +110,10 @@ def load_sample_metadata_and_target(id_map_f, sample_metadata_f):
     # TODO: start here. Check if running this gets us to have all the columns as we would with the next ~7 lines of code; I think the output will be equivalent after we restrict to paired samples!
 
     logging.info("Loading the sample metadata DF that has all the IDs and also our target, metastatic status ('is_met')")
-    sample_metadata = utils.load_sample_metadata_with_all_germline_ids(sample_metadata_f, id_map_f) # TODO: start here. Can we remove reliance on this function, and use a simpler one instead?
+    sample_metadata = data_manipulation.load_sample_metadata_with_all_germline_ids(sample_metadata_f, germline_somatic_id_map_f)
     logging.debug(sample_metadata.head())
     logging.debug(sample_metadata.shape)
-    # sample_metadata = utils.load_sample_metadata_with_all_germline_ids(sample_metadata_f, germline_id_map_f)
+    # sample_metadata = data_manipulation.load_sample_metadata_with_all_germline_ids(sample_metadata_f, germline_id_map_f)
     # logging.debug(sample_metadata.head())
 
     # logging.info("Adding the mapping columns that let us pair germline with somatic in the future (namely the vcf_germline_id (germline) and the Tumor_Sample_Barcode (P-NET somatic)")
@@ -167,19 +164,20 @@ def load_germline_mut(germline_vars_f): # TODO: deal with paths
     logging.info(f"Loading germline mutation data from {germline_vars_f}")
     germline_var_df = pd.read_csv(germline_vars_f, low_memory=False, sep="\t")
     germline_var_df = germline_var_df.set_index("Uploaded_variation")
-    logging.info(f"Shape of raw germline mutation data: {germline_var_df.shape()}")
+    logging.info(f"Shape of raw germline mutation data: {germline_var_df.shape}")
     return germline_var_df
 
 
-def find_overlapping_columns(*dataframes):
-    # Ensure that at least two DataFrames are provided
+def find_overlapping_columns(dataframes): # TODO: check if we should have a *dataframes here or not. Same for overlapping indicies function.
+    logging.info("Finding overlapping columns in the given list of {len(dataframes)} datasets")
+    logging.debug("Ensure that at least two DataFrames are provided")
     if len(dataframes) < 2:
         raise ValueError("At least two DataFrames are required for finding overlaps.")
 
-    # Get the columns of the first DataFrame
+    logging.debug("Get the columns of the first DataFrame")
     overlapping_columns = set(dataframes[0].columns)
 
-    # Find the intersection of columns with each subsequent DataFrame
+    logging.debug("Find the intersection of columns with each subsequent DataFrame")
     for df in dataframes[1:]:
         overlapping_columns = overlapping_columns.intersection(df.columns)
 
@@ -188,14 +186,14 @@ def find_overlapping_columns(*dataframes):
 
 
 def find_overlapping_indices(*dataframes):
-    # Ensure that at least two DataFrames are provided
-    if len(dataframes) < 2:
+    logging.info("Finding overlapping indicies in the given {len(dataframes)} datasets")
+    logging.debug("Ensure that at least two DataFrames are provided")    if len(dataframes) < 2:
         raise ValueError("At least two DataFrames are required for finding overlaps.")
 
-    # Get the indices of the first DataFrame
+    logging.debug("Get the indices of the first DataFrame")
     overlapping_indices = set(dataframes[0].index)
 
-    # Find the intersection of indices with each subsequent DataFrame
+    logging.debug("Find the intersection of indices with each subsequent DataFrame")
     for df in dataframes[1:]:
         overlapping_indices = overlapping_indices.intersection(df.index)
         
@@ -204,14 +202,14 @@ def find_overlapping_indices(*dataframes):
 
 
 def find_overlapping_elements(*arrays):
-    # Ensure that at least two arrays are provided
+    logging.debug("Ensure that at least two arrays are provided")
     if len(arrays) < 2:
         raise ValueError("At least two arrays are required for finding overlaps.")
 
-    # Get the elements of the first array
+    logging.debug("Get the elements of the first array")
     overlapping_elements = set(arrays[0])
 
-    # Find the intersection with each subsequent array
+    logging.debug("Find the intersection with each subsequent array")
     for a in arrays[1:]:
         overlapping_elements = overlapping_elements.intersection(a)
 
@@ -272,10 +270,10 @@ def filter_to_specified_columns(columns, *dataframes):
 
 
 def get_genes_in_common(*dataframes): # TODO: test function
-    logging.info("finding overlapping genes across the DFs")
-    overlapping_genes = find_overlapping_columns(dataframes)
+    logging.info("Finding overlapping genes across the DFs")
+    overlapping_genes = find_overlapping_columns(*dataframes)
     
-    logging.info("find the overlap between this and the pre-specified list of TCGA cancer genes and those expressed in the prostate")
+    logging.info("Find the overlap between this and the pre-specified list of TCGA cancer genes and those expressed in the prostate")
     # TODO: looks like there was an excel misshap! MAR1 has become 1-Mar, 10-Sept, etc. But I don't think these genes are covered by our datasets anyway...
     genes = pd.read_csv('../../pnet_germline/data/pnet_database/genes/tcga_prostate_expressed_genes_and_cancer_genes.csv') 
     logging.debug(genes.head())
@@ -336,13 +334,13 @@ def format_germline_mutation_data(df):
     """
     logging.info("Starting process of formatting the germline mutation data.")
     logging.info("Extracting the variant metadata DF")
-    variant_metadata = utils.get_variant_metadata_from_VCF(df)
+    variant_metadata = vcf_manipulation.get_variant_metadata_from_VCF(df)
 
     logging.info("Make the binary variant-level genotypes matrix (variants x samples)")
-    binary_genotypes = utils.make_binary_genotype_mat_from_VCF(df)
+    binary_genotypes = vcf_manipulation.make_binary_genotype_mat_from_VCF(df)
 
     logging.info("Make the binary gene-level genotypes matrix (genes x samples)")
-    gene_level_genotype_matrix =  utils.convert_binary_var_mat_to_gene_level_mat(binary_genotypes, 
+    gene_level_genotype_matrix =  vcf_manipulation.convert_binary_var_mat_to_gene_level_mat(binary_genotypes, 
                                                                 variant_metadata, 
                                                                 binary_output = True)
 
@@ -359,13 +357,13 @@ def format_germline_mutation_data_old(df, change_to_somatic_ids=True, paired=Tru
     - paired: if True, we only keep germline samples were we also have the paired somatic sample
     """
     logging.info("Extracting the variant metadata DF")
-    variant_metadata = utils.get_variant_metadata_from_VCF(df)
+    variant_metadata = vcf_manipulation.get_variant_metadata_from_VCF(df)
 
     logging.info("Make the binary variant-level genotypes matrix")
-    binary_genotypes = utils.make_binary_genotype_mat_from_VCF(df)
+    binary_genotypes = vcf_manipulation.make_binary_genotype_mat_from_VCF(df)
 
     logging.info("Make the binary gene-level genotypes matrix")
-    gene_level_genotype_matrix =  utils.convert_binary_var_mat_to_gene_level_mat(binary_genotypes, 
+    gene_level_genotype_matrix =  vcf_manipulation.convert_binary_var_mat_to_gene_level_mat(binary_genotypes, 
                                                                 variant_metadata, 
                                                                 binary_output = True)
 
