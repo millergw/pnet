@@ -1,6 +1,14 @@
 import data_manipulation # general data manipulations
 import pandas as pd
 import numpy as np
+import logging
+
+logging.basicConfig(
+            format='%(asctime)s %(levelname)-8s %(message)s',
+            level=logging.INFO,
+            datefmt='%Y-%m-%d %H:%M:%S')
+
+logger = logging.getLogger()
 
 ############################## 
 # Prostate project data loading
@@ -42,10 +50,10 @@ def load_sample_metadata_and_target(id_map_f, sample_metadata_f):
     # TODO: start here. Check if running this gets us to have all the columns as we would with the next ~7 lines of code; I think the output will be equivalent after we restrict to paired samples!
 
     logging.info("Loading the sample metadata DF that has all the IDs and also our target, metastatic status ('is_met')")
-    sample_metadata = prostate_data_loaders.load_sample_metadata_with_all_germline_ids(sample_metadata_f, germline_somatic_id_map_f)
+    sample_metadata = load_sample_metadata_with_all_germline_ids(sample_metadata_f, id_map_f)
     logging.debug(sample_metadata.head())
     logging.debug(sample_metadata.shape)
-    # sample_metadata = prostate_data_loaders.load_sample_metadata_with_all_germline_ids(sample_metadata_f, germline_id_map_f)
+    # sample_metadata = load_sample_metadata_with_all_germline_ids(sample_metadata_f, id_map_f)
     # logging.debug(sample_metadata.head())
 
     # logging.info("Adding the mapping columns that let us pair germline with somatic in the future (namely the vcf_germline_id (germline) and the Tumor_Sample_Barcode (P-NET somatic)")
@@ -157,7 +165,7 @@ def format_mutation_data(mut_df, mut_binary=True):
     Args:
     - mut_binary: True means that we should binarize the DF if it isn't already binarizied; we want a binary mutation DF.
     If binarized already, then should only have <=2 unique values in each column (0/1). If we have more, then we're probably working with a burden matrix, but this should be investigated."""
-    if mut_binary and not is_binarized(mut_df):
+    if mut_binary and not data_manipulation.is_binarized(mut_df):
     # if mut_binary and max(somatic_mut.nunique()) >= 2:
         logging.info(f"Matrix was not binary. There were {max(mut_df.nunique())} unique values; binarizing now")
         mut_df[mut_df > 1.] = 1.

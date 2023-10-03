@@ -7,17 +7,10 @@ Author: Gwen Miller <gwen_miller@g.harvard.edu>
 
 import numpy as np
 import pandas as pd
-import os
-from tqdm import tqdm
 import logging
+import os
 import matplotlib
 import matplotlib.pyplot as plt
-from sklearn.compose import ColumnTransformer
-from sklearn.preprocessing import OneHotEncoder
-
-
-# from filter_to_pathogenic_variants import *
-import filter_to_pathogenic_variants as patho
 
 logging.basicConfig(
             format='%(asctime)s %(levelname)-8s %(message)s',
@@ -28,9 +21,89 @@ logger = logging.getLogger()
 # logger.setLevel(logging.INFO)
 
 
+
+############################## 
+# General data loading / saving
+##############################
+
+def remove_whitespace_from_df(df):
+    """Remove all leading and trailing whitespace from DF column names and every cell"""
+    logging.debug("Remove leading and trailing whitespace from every cell")
+    df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)
+    
+    logging.debug("Remove leading and trailing whitespace from column names")
+    df.columns = df.columns.str.strip()
+    return df
+
+
+def make_path_if_needed(file_path):
+    directory = os.path.dirname(file_path)
+    if not os.path.exists(directory):
+        logging.debug(f"We're creating the non-existing directories in {directory}")
+        os.makedirs(directory)
+    return
+                      
+
+def filename(f):
+    return os.path.splitext(os.path.basename(f))[0]
+
+
+def get_files_with_suffix_from_dir(dir_path, suffix):
+    all_files = os.listdir(dir_path)    
+    suffix_files = list(filter(lambda f: f.endswith(suffix), all_files))
+    return [os.path.join(dir_path, p) for p in suffix_files]
+
+
+def savefig(save_path, png=True, svg=True):
+    make_path_if_needed(save_path)
+    logging.info(f"saving plot to {save_path}")
+    if png:
+        plt.savefig(save_path, bbox_inches='tight')
+    if svg:
+        plt.savefig(f"{save_path}.svg", format="svg", bbox_inches='tight')
+
+
+def relocate(df, cols): 
+    """cols is a list of column names you want to place in the front"""
+    new_var_order = cols + df.columns.drop(cols).tolist() 
+    df = df[new_var_order] 
+    return(df)
+
+
 ############################## 
 # General DF manipulations and filtering
 ##############################
+def find_mapping(list_a, list_b, reverse_dict=False):
+    """
+    To find the mapping between two lists where each element in list A is a strict substring of one of the elements in list B, you can use this function.
+    # Example usage
+    list_a = ['apple', 'banana', 'cat']
+    list_b = ['apple pie', 'banana bread', 'black cat']
+
+    result = find_mapping(list_a, list_b)
+    print(result)
+    
+                 Mapped Value
+    apple        apple pie
+    banana       banana bread
+    cat          black cat
+
+    """
+    mapping = {}
+    for a in list_a:
+        for b in list_b:
+            if a in b:
+                mapping[a] = b
+                break
+    logging.debug(f"Found matches for a total of {len(mapping)} out of {len(list_a)} items.")
+    if reverse_dict is True: # TODO: need to check what happens if the values are not unique
+        logging.info("Reversing the dict so the superstrings are the keys and the substrings are the values")
+        logging.info(f"len(set(mapping.values())) == len(mapping.values()): {len(set(mapping.values())) == len(mapping.values())}")
+        reversed_dict = {value: key for key, value in mapping.items()}
+        mapping = reversed_dict
+    return mapping
+
+
 def find_overlapping_columns(dataframes): # TODO: check if we should have a *dataframes here or not. Same for overlapping indicies function.
     logging.info("Finding overlapping columns in the given list of {len(dataframes)} datasets")
     logging.debug("Ensure that at least two DataFrames are provided")
@@ -152,6 +225,16 @@ def is_binarized(df):
     is_binarized(binarized_df)
     """
     return np.all((df.values == 0.) | (df.values == 1.))
+
+
+def binarize(value, set_as_zero="./."):
+    """
+    Define a function to binarize a value
+    """
+    if value == set_as_zero:
+        return 0
+    else:
+        return 1
 
 
 def drop_na_index_rows(df):

@@ -15,6 +15,7 @@ import Pnet # this fails to load bc of how it imports ReactomeNetwork...
 import data_manipulation
 import vcf_manipulation
 import prostate_data_loaders
+import report_and_eval
 
 import wandb
 import pandas as pd
@@ -27,9 +28,6 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix # expects true_labels, predicted_labels
 from sklearn.metrics import classification_report # expects true_labels, predicted_labels
 from sklearn.metrics import roc_auc_score # expects true_labels, predicted_probs
-from sklearn.metrics import balanced_accuracy_score
-from sklearn.metrics import accuracy_score
-import torch.nn as nn
 
 import logging
 logging.basicConfig(
@@ -73,159 +71,6 @@ mutations_dict = {"3'Flank": 'Silent',
                   }
 
 
-def get_pnet_preds_and_probs(pnet_dataset, model):
-    probs = torch.sigmoid(model(pnet_dataset.x, pnet_dataset.additional)).detach().numpy()
-    preds = [1 if i>0.5 else 0 for i in probs] # TODO: is this the best approach?
-    return preds, probs
-
-
-def get_loss_plot(train_losses, test_losses, 
-                  train_label="Train loss", test_label="Validation loss"):
-    # Sample data
-    epochs = range(1, len(train_losses)+1)
-
-    # Plotting the lines
-    plt.plot(epochs, train_losses, label=train_label)
-    plt.plot(epochs, test_losses, label=test_label)
-
-    # Adding labels and title
-    plt.xlabel('Epochs')
-    plt.ylabel('Loss')
-    plt.title('Model Loss')
-
-    # Adding a legend
-    plt.legend()
-    return plt
-    
-
-def get_performance_metrics(model, train_dataset, test_dataset, config):
-    
-    x_train = train_dataset.x
-    additional_train = train_dataset.additional
-    y_train = train_dataset.y
-    x_test = test_dataset.x
-    additional_test = test_dataset.additional
-    y_test = test_dataset.y
-    
-
-    logging.info("# making predictions on train and test sets")  
-    logging.info("computing model predictions on train set")
-    y_train_preds, y_train_probas = get_pnet_preds_and_probs(train_dataset, model)
-    plt.hist(y_train_preds)
-
-    logging.info("computing model predictions on test set")
-    y_test_preds, y_test_probas = get_pnet_preds_and_probs(test_dataset, model)
-    plt.hist(y_test_preds)
-
-
-    logging.info("# calculating and logging useful performance metrics")
-    train_score = accuracy_score(y_train, y_train_preds, normalize=True)
-    test_score = accuracy_score(y_test, y_test_preds, normalize=True)
-    wandb.run.summary["train_score"] = train_score # we use wandb.run.summary instead of wandb.log when we don't want multiple time steps
-    wandb.run.summary["test_score"] = test_score
-    wandb.run.summary["test_roc_auc_score"] = roc_auc_score(y_test, y_test_probas) # expects true_labels, predicted_probs
-    wandb.run.summary['train_balanced_acc'] = balanced_accuracy_score(y_train, y_train_preds)
-    wandb.run.summary['test_balanced_acc'] = balanced_accuracy_score(y_test, y_test_preds)
-    
-    logging.info(f"train score: {train_score}, test_score: {test_score}")
-    logging.info(confusion_matrix(y_test, y_test_preds))
-    
-    wandb.log({
-        "train_confusion_matrix": plot_confusion_matrix(y_train, y_train_preds), # expects true_labels, predicted_labels
-        "test_confusion_matrix": confusion_matrix(y_test, y_test_preds),
-        "test_classification_report": classification_report(y_test, y_test_preds) # expects true_labels, predicted_labels
-              })
-    
-    wandb.sklearn.plot_confusion_matrix(y_test, y_test_preds)
-    wandb.sklearn.plot_summary_metrics(model, x_train, y_train, x_test, y_test)
-    
-    # TODO: delete the stuff below here; I think it is redundant
-    logging.info("train set metrics")
-    cm_train = confusion_matrix(y_train, y_train_preds)
-    print(classification_report(y_train, y_train_preds))
-    print(roc_auc_score(y_train, y_train_probas))
-    print(cm_train)
-
-    logging.info("validation set metrics")
-    cm_test = confusion_matrix(y_test, y_test_preds) # can also do (test_preds >= 0.5) instead of the list comprehension
-    print(classification_report(y_test, y_test_preds)) 
-    print(roc_auc_score(y_test, y_test_probas))
-    print(cm_test)
-
-    logging.info("# returning the predictions and prediction probabilities for train/test sets")
-    return y_train_preds, y_test_preds, y_train_probas, y_test_probas
-
-
-def report_df_info(*dataframes, n=5): # TODO: use this instead of load_df_verbose
-    """
-    Report information about an arbitrary number of dataframes.
-
-    Parameters:
-    *dataframes (pd.DataFrame): Arbitrary number of dataframes to report information about.
-    n (int): Number of columns and indices to display.
-
-    Returns:
-    None
-
-    # Example usage:
-    data1 = {'A': [1, 2, 3], 'B': [4, 5, 6]}
-    data2 = {'X': [7, 8, 9], 'Y': [10, 11, 12]}
-
-    df1 = pd.DataFrame(data1, index=['row1', 'row2', 'row3'])
-    df2 = pd.DataFrame(data2, index=['row4', 'row5', 'row6'])
-
-    # Call the function to report information about the dataframes
-    report_df_info(df1, df2)
-    """
-
-    for idx, df in enumerate(dataframes, start=1):
-        print(f"----- DataFrame {idx} Info -----")
-        print(f"Shape: {df.shape}")
-        print(f"First {n} columns: {df.columns[:n].tolist()}")
-        print(f"First {n} indices: {df.index[:n].tolist()}")
-        print("-----")
-    return
-
-
-def report_df_info_with_names(df_dict, n=5):
-    """
-    Report information about dataframes (with DF names provided in a dictionary for convenience).
-
-    Parameters:
-    df_dict (dict): A dictionary where keys are names and values are dataframes.
-    n (int): Number of columns and indices to display.
-
-    Returns:
-    None
-
-    # Example usage:
-    data1 = {'A': [1, 2, 3], 'B': [4, 5, 6]}
-    data2 = {'X': [7, 8, 9], 'Y': [10, 11, 12]}
-
-    df1 = pd.DataFrame(data1, index=['row1', 'row2', 'row3'])
-    df2 = pd.DataFrame(data2, index=['row4', 'row5', 'row6'])
-
-    # Create a dictionary with dataframe names
-    dataframes_dict = {"DataFrame 1": df1, "DataFrame 2": df2}
-
-    # Call the function with the dictionary of dataframes
-    report_df_info_with_names(dataframes_dict)
-
-    # Alternatively, use dict(zip()) instead of writing out a dictionary
-    names = ['Dataframe 1', 'DF2']
-    dfs = [df1, df2]
-    report_df_info_with_names(dict(zip(names, dfs)))
-    """
-
-    for name, df in df_dict.items():
-        print(f"----- DataFrame {name} Info -----")
-        print(f"Shape: {df.shape}")
-        print(f"First {n} columns: {df.columns[:n].tolist()}")
-        print(f"First {n} indices: {df.index[:n].tolist()}")
-        print("-----")
-    return
-
-
 def main():
     wandb.login()
     """# Load each of your data modalities of interest.
@@ -267,33 +112,33 @@ def main():
     id_map_f = os.path.join(GERMLINE_DATADIR, "prostate/germline_somatic_id_map_outer_join.csv") # germline_somatic_id_map_f
     sample_metadata_f = os.path.join(GERMLINE_DATADIR,"prostate/pathogenic_variants_with_clinical_annotation_1341_aug2021_correlation.csv")
 
-    somatic_mut = get_somatic_mutation(somatic_mut_f)
-    somatic_amp, somatic_del = get_somatic_amp_and_del(somatic_cnv_f)
-    germline_mut = get_germline_mutation(germline_vars_f)  
-    y = get_target(id_map_f, sample_metadata_f, id_to_use="Tumor_Sample_Barcode", target_col="is_met")
-    # TODO: deal with adding confounder dataset: get_confounders(), etc.
+    somatic_mut = prostate_data_loaders.get_somatic_mutation(somatic_mut_f)
+    somatic_amp, somatic_del = prostate_data_loaders.get_somatic_amp_and_del(somatic_cnv_f)
+    germline_mut = prostate_data_loaders.get_germline_mutation(germline_vars_f)  
+    y = prostate_data_loaders.get_target(id_map_f, sample_metadata_f, id_to_use="Tumor_Sample_Barcode", target_col="is_met")
+    # TODO: deal with adding confounder / "additional" dataset(s): get_confounders(), etc.
 
     if USE_ONLY_PAIRED or CONVERT_IDS_TO: # Need to test the function going both ways, to somatic and to germline
-        harmonize_prostate_ids(datasets_w_germline_ids=[germline_mut], 
+        prostate_data_loaders.harmonize_prostate_ids(datasets_w_germline_ids=[germline_mut], 
                                datasets_w_somatic_ids=[somatic_mut, somatic_amp, somatic_del, y], 
                                convert_ids_to=CONVERT_IDS_TO) # want to run stuff if change_to_somatic_ids or paired
     if USE_ONLY_PAIRED: # want to run stuff if paired; note that this will only work correctly if the IDs are correctly harmonized
         logging.info("Restrict to overlapping samples (the indices)")
-        somatic_mut, somatic_amp, somatic_del, germline_mut, y = restrict_to_overlapping_indices(somatic_mut, somatic_amp, somatic_del, 
+        somatic_mut, somatic_amp, somatic_del, germline_mut, y = data_manipulation.restrict_to_overlapping_indices(somatic_mut, somatic_amp, somatic_del, 
                                                                                                  germline_mut, 
                                                                                                  y)
 
     # zero impute dataset columns (genes) as necessary (maybe have a reference dataset vs all others? Unsure of best way to parameterize this function)
-    germline_mut = zero_impute_germline_datasets(germline_datasets=[germline_mut], 
+    germline_mut = prostate_data_loaders.zero_impute_germline_datasets(germline_datasets=[germline_mut], 
                                   somatic_datasets=[somatic_mut, somatic_amp, somatic_del], 
                                   zero_impute_germline=ZERO_IMPUTE_GERMLINE) 
-    somatic_mut, somatic_amp, somatic_del = zero_impute_somatic_datasets(germline_datasets=[germline_mut], 
+    somatic_mut, somatic_amp, somatic_del = prostate_data_loaders.zero_impute_somatic_datasets(germline_datasets=[germline_mut], 
                                  somatic_datasets=[somatic_mut, somatic_amp, somatic_del], 
                                  zero_impute_somatic=ZERO_IMPUTE_SOMATIC)
 
 
     logging.info("Now that we have processed all our datasets, we restrict to just the overlapping genes (the columns) (and further filter to those that fit some TCGA criteria)")
-    somatic_mut, somatic_amp, somatic_del, germline_mut = restrict_to_genes_in_common(somatic_mut, somatic_amp, somatic_del, germline_mut)
+    somatic_mut, somatic_amp, somatic_del, germline_mut = prostate_data_loaders.restrict_to_genes_in_common(somatic_mut, somatic_amp, somatic_del, germline_mut)
     
     
     # TODO: change so that the function call is inside a logging statement.
@@ -301,7 +146,7 @@ def main():
         ['somatic_mut', 'somatic_amp', 'somatic_del', 'germline_mut', 'y'], 
         [somatic_mut, somatic_amp, somatic_del, germline_mut, y]
     ))
-    report_df_info_with_names(df_dict, n=5)
+    report_and_eval.report_df_info_with_names(df_dict, n=5)
 
 
     logging.info("Finished preparing data format. Now left with: making train/val/test splits, setting up model, running model, evaluate model")
@@ -395,39 +240,53 @@ def main():
                          weight_decay=hparams['weight_decay'])
 
     
-    logging.info("checking model convergence by examining a plot of how the loss changes over time")
-    #for testing mutation not loss [Gwen: what does this mean?]
     model, train_losses, test_losses = Pnet.train(model, train_loader, val_loader, epochs=hparams['epochs'], verbose=hparams['verbose'], early_stopping=hparams['early_stopping'])
-    plt = get_loss_plot(train_losses=train_losses, test_losses=test_losses)
-    plt.show()
+    logging.info("Check model convergence by examining the plot of how loss changes over time")
+    plt = report_and_eval.get_loss_plot(train_losses=train_losses, test_losses=test_losses)
+    # plt.show() # TODO: should also save this plot somehow, or send to W&B
+    # instead of doing plt.show() do: # see https://docs.wandb.ai/guides/integrations/scikit
+    wandb.log({"convergence plot": plt})
 
-    logging.info("checking model performance")
-    logging.info("Checking performance metrics for train/test")
-    y_train_preds, y_test_preds, y_train_probas, y_test_probas = get_performance_metrics(model, train_dataset, test_dataset, config=hparams)
 
-    train_preds = torch.sigmoid(model(train_dataset.x, train_dataset.additional)).detach().numpy()
-    plt.hist(train_preds)
+    logging.info("Get model predictions")
+    y_train_preds, y_train_probas, y_test_preds, y_test_probas = report_and_eval.get_model_preds_and_probs(model, train_dataset, test_dataset)
 
-    test_preds = torch.sigmoid(model(test_dataset.x, test_dataset.additional)).detach().numpy()
-    plt.hist(test_preds)
+    logging.info("Get train performance metrics") # TODO    
+    train_acc, train_cm = report_and_eval.get_performance_metrics(who="train", y_trues=train_dataset.y,
+                                            y_preds=y_train_preds, y_probas=y_train_probas)
 
-    print("train set metrics")
-    cm_train = confusion_matrix(train_dataset.y.detach().numpy(), [1 if i>0.5 else 0 for i in train_preds])
-    print(classification_report(train_dataset.y.detach().numpy(), [1 if i>0.5 else 0 for i in train_preds]))
-    print(roc_auc_score(train_dataset.y.detach().numpy(), train_preds))
+    logging.info("Get test performance metrics")
+    test_acc, test_cm, = report_and_eval.get_performance_metrics(who="val", y_trues=test_dataset.y, # TODO: hard-coded as validation
+                                            y_preds=y_test_preds, y_probas=y_test_probas)
 
-    print(cm_train)
+    report_and_eval.get_performance_metrics_wandb(model, # TODO: start here. how do I exactly get x_train? Is it train_dataset.x? What about train_dataset.additional?
+                                                  train_dataset.x, train_dataset.y, y_train_preds, 
+                                                  test_dataset.x, test_dataset.y, y_test_preds) 
 
-    print("\nvalidation set metrics")
-    cm_test = confusion_matrix(test_dataset.y.detach().numpy(), [1 if i>0.5 else 0 for i in test_preds]) # can also do (test_preds >= 0.5) instead of the list comprehension
-    print(classification_report(test_dataset.y.detach().numpy(), [1 if i>0.5 else 0 for i in test_preds])) 
-    print(roc_auc_score(test_dataset.y.detach().numpy(), test_preds))
-    print(cm_test)
+    # TODO: I think all of the following is redundant. However, some of the print statements and plots are useful for debugging
+    # train_preds = torch.sigmoid(model(train_dataset.x, train_dataset.additional)).detach().numpy()
+    # plt.hist(train_preds)
+
+    # test_preds = torch.sigmoid(model(test_dataset.x, test_dataset.additional)).detach().numpy()
+    # plt.hist(test_preds)
+
+    # print("train set metrics")
+    # cm_train = confusion_matrix(train_dataset.y.detach().numpy(), [1 if i>0.5 else 0 for i in train_preds])
+    # print(classification_report(train_dataset.y.detach().numpy(), [1 if i>0.5 else 0 for i in train_preds]))
+    # print(roc_auc_score(train_dataset.y.detach().numpy(), train_preds))
+
+    # print(cm_train)
+
+    # print("\nvalidation set metrics")
+    # cm_test = confusion_matrix(test_dataset.y.detach().numpy(), [1 if i>0.5 else 0 for i in test_preds]) # can also do (test_preds >= 0.5) instead of the list comprehension
+    # print(classification_report(test_dataset.y.detach().numpy(), [1 if i>0.5 else 0 for i in test_preds])) 
+    # print(roc_auc_score(test_dataset.y.detach().numpy(), test_preds))
+    # print(cm_test)
     
     logging.info("ending wandb run")
     wandb.finish()
     return
 
-    
+
 if __name__=="__main__":
     main()

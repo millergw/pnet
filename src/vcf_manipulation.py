@@ -8,11 +8,13 @@ Author: Gwen Miller <gwen_miller@g.harvard.edu>
 
 import numpy as np
 import pandas as pd
-import os
 from tqdm import tqdm
 import logging
 import matplotlib
 import matplotlib.pyplot as plt
+
+import data_manipulation
+import filter_to_pathogenic_variants as patho
 
 
 logging.basicConfig(
@@ -21,31 +23,52 @@ logging.basicConfig(
             datefmt='%Y-%m-%d %H:%M:%S')
 
 logger = logging.getLogger()
-# logger.setLevel(logging.INFO)
+
+mutations_dict = {"3'Flank": 'Silent',
+                  "5'Flank": 'Silent',
+                  "5'UTR": 'Silent',
+                  "3'UTR": 'Silent',
+                  "IGR": 'Silent',
+                  "Intron": 'Silent',
+                  "lincRNA": 'Silent',
+                  "RNA": 'Silent',
+                  "Silent": 'Silent',
+                  "non_coding_transcript_exon": 'Silent',
+                  "upstream_gene": 'Silent',
+                  "Splice_Region": 'Silent',
+                  "Targeted_Region": 'Silent',
+                  'Splice_Site': 'LOF',
+                  'Nonsense_Mutation': 'LOF',
+                  'Frame_Shift_Del': 'LOF',
+                  'Frame_Shift_Ins': 'LOF',
+                  'Stop_Codon_Del': 'LOF',
+                  'Stop_Codon_Ins': 'LOF',
+                  'Nonstop_Mutation': 'LOF',
+                  'Start_Codon_Del': 'LOF',
+                  'Missense_Mutation': 'Other_nonsynonymous',
+                  'In_Frame_Del': 'Other_nonsynonymous',
+                  'In_Frame_Ins': 'Other_nonsynonymous',
+                  'De_novo_Start_InFrame': 'Other_nonsynonymous',
+                  'De_novo_Start_OutOfFrame': 'Other_nonsynonymous',
+                  'Start_Codon_Ins': 'Other_nonsynonymous'
+                  }
+
 
 ##############################
-## working with VCFs
+## working with VCFs (loading, filtering, selecting relevant columns)
 ##############################
-
-
-
-# Define a function to binarize the genotype values
-def binarize(value):
-    if value == "./.":
-        return 0
-    else:
-        return 1
-
-    
-def binarize_burden_mat(value):
-    if value != 0.:
-        return 1
-    else:
-        return 0
+def binarize_burden_mat(value): # TODO: check if these are equivalent
+    return data_manipulation.binarize(value, set_as_zero=0.)
+    # if value != 0.:
+    #     return 1
+    # else:
+    #     return 0
     
 
 def binarize_vcf(df):
-    df = df.applymap(utils.binarize)
+    """A function to binarize the genotype values, 
+    replacing "./." with 0 and all else with 1"""
+    df = df.applymap(data_manipulation.binarize)
     return df
 
 
@@ -56,6 +79,7 @@ def get_sample_col_names_from_VCF_matrix(df):
 def get_sample_col_names_from_VCF(df):
     # exclude any sample-related columns
     return [col for col in df.columns if col.endswith(('.AD', '.DP', '.GQ', '.GT', '.VAF', '.PL'))]
+
 
 def get_non_sample_col_names_from_VCF(df):
     # exclude any sample-related columns
@@ -76,6 +100,7 @@ def get_sample_cols_from_VCF(df):
     logging.info(f"vcf shape: {df.shape}")
     return df
 
+
 def load_sample_cols_from_VCF(annot_vcf_f):
     logging.info("loading the VCF")
     df = pd.read_csv(annot_vcf_f, sep="\t")
@@ -91,7 +116,7 @@ def load_vcf_and_format_as_binary_df(vcf_f, pathogenic_vars_only=False): # TODO:
         vcf = restrict_vcf_to_patho_only(vcf)
 
     logging.info("restricting to just the genotype columns (the ones that end in .GT) and binarizing...")
-    vcf = vcf.filter(regex=".GT$").applymap(utils.binarize)
+    vcf = vcf.filter(regex=".GT$").applymap(data_manipulation.binarize)
     vcf.columns = vcf.columns.map(lambda x: x[:-3] if x.endswith('.GT') else x)
     logging.debug(f"vcf shape: {vcf.shape}")
     return vcf
@@ -148,8 +173,7 @@ def load_full_VCF(annot_vcf_f, pathogenic_vars_only=False):
 def n_variants_per_sample_from_vcf(vcf, savefig_f = False,
                                    plot_title="# variants per sample", 
                                    plot_id=None,
-                                   plot_xlabel="# variants/sample",
-                                   ax=None):
+                                   plot_xlabel="# variants/sample"):
     """
     Inputs:
     - Expect vcf is a pandas DF, variants x samples
@@ -159,24 +183,23 @@ def n_variants_per_sample_from_vcf(vcf, savefig_f = False,
     n_variants_per_sample = vcf.sum(axis=0)
     
     logging.info("building plot")
-    if ax is None:
-        fig.ax = plt.subplots()
-    ax.hist(n_variants_per_sample.tolist())
+    plt.hist(n_variants_per_sample.tolist())
 
     if plot_id is not None:
-        fig.suptitle(plot_id)
-    ax.set_title(plot_title)
-    ax.set_xlabel(plot_xlabel)
+        plt.suptitle(plot_id)
+    plt.title(plot_title)
+    plt.xlabel(plot_xlabel)
     
     if savefig_f:
-        utils.savefig(savefig_f)
-    return fig
+        data_manipulation.savefig(savefig_f)
+    return plt
+
 
 def n_samples_per_variant_from_vcf(vcf, savefig_f = False, 
-                                   plot_title="# samples per variant (dataset MAF=0.01 in red)", 
+                                   plot_title="# samples per variant (dataset MAF=0.01 in red; log-scale)", 
                                    plot_id=None,
                                    plot_xlabel="log2(# samples/variant)",
-                                   ax=None):
+                                   epsilon=1e-1):
     """
     Inputs:
     - Expect vcf is a pandas DF, variants x samples
@@ -184,24 +207,23 @@ def n_samples_per_variant_from_vcf(vcf, savefig_f = False,
     """
     logging.info(f"working with a VCF with {vcf.shape[1]} samples and {vcf.shape[0]} rows (variants, genes, etc)")
     n_samples_per_variant = vcf.sum(axis=1)
-
-    logging.info("building plot")
-    if ax is None:
-        fig,ax = plt.subplots()
+    logging.warn(f"TODO: temporary fix where we replace 0s with epsilon = {epsilon}")
+    n_samples_per_variant = np.where(n_samples_per_variant == 0, epsilon, n_samples_per_variant)
     
+    logging.info("building plot")
     # plot vertical line corresponding to MAF = 0.01
     maf_1percent = vcf.shape[1]*0.01
-    ax.hist(np.log2(n_samples_per_variant.tolist()))
-    ax.axvline(x=np.log2(maf_1percent), color="red")
+    plt.hist(np.log2(n_samples_per_variant.tolist()))
+    plt.axvline(x=np.log2(maf_1percent), color="red")
     
     if plot_id is not None:
         plt.suptitle(plot_id)
-    ax.set_title(plot_title)
-    ax.set_xlabel(plot_xlabel)
+    plt.title(plot_title)
+    plt.xlabel(plot_xlabel)
     
     if savefig_f:
-        utils.savefig(savefig_f)
-    return fig
+        data_manipulation.savefig(savefig_f)
+    return plt
 
 
 def filter_annotated_vcf_by_gene_list(annot_vcf, annot_vcf_f, gene_list,
@@ -295,7 +317,7 @@ def remove_variants_too_common_in_dataset(vcf_f, pathogenic_vars_only=True, remo
     """
     TODO: currently non-functional
     """    
-    subset_id = filename(vcf_f) # use the filename as the subset identifier
+    subset_id = data_manipulation.filename(vcf_f) # use the filename as the subset identifier
     logging.info(f"working on gene subset {subset_id}\nfile {vcf_f}")
     vcf = pd.read_csv(vcf_f, sep="\t", low_memory=False).set_index("Uploaded_variation")
     
@@ -305,7 +327,7 @@ def remove_variants_too_common_in_dataset(vcf_f, pathogenic_vars_only=True, remo
         vcf = vcf.set_index("Uploaded_variation")
     
     logging.debug("restricting to just the genotype columns (the ones that end in .GT) and binarizing...")
-    vcf = vcf.filter(regex=".GT$").applymap(binarize)
+    vcf = vcf.filter(regex=".GT$").applymap(data_manipulation.binarize)
     vcf.columns = vcf.columns.map(lambda x: x[:-3] if x.endswith('.GT') else x)
     logging.info(f"vcf shape: {vcf.shape}")
 
@@ -314,7 +336,7 @@ def remove_variants_too_common_in_dataset(vcf_f, pathogenic_vars_only=True, remo
     n_samples_per_variant = vcf.sum(axis=1)
     vcf['n_samples_with_variant'] = n_samples_per_variant
     vcf['percent_of_samples_with_variant'] = n_samples_per_variant/N
-    vcf = relocate(vcf, ['n_samples_with_variant', 'percent_of_samples_with_variant'])
+    vcf = data_manipulation.relocate(vcf, ['n_samples_with_variant', 'percent_of_samples_with_variant'])
 
     remove_df = vcf[vcf['percent_of_samples_with_variant'] >= remove_vars_above_threshold].sort_values(by=["n_samples_with_variant"], ascending=False).copy()
     logging.info(f"here are the {len(remove_df)} variants that we filter out")
@@ -325,6 +347,7 @@ def remove_variants_too_common_in_dataset(vcf_f, pathogenic_vars_only=True, remo
     
     logging.info("returning the filtered VCF and the DF of variants we removed")
     return vcf, remove_df
+
 
 def subset_to_pathogenic_only(df, gene_list=None, save_f=None, remove_vars_above_threshold = 0.05):
     """
@@ -365,7 +388,7 @@ def subset_to_pathogenic_only(df, gene_list=None, save_f=None, remove_vars_above
     
 def make_binary_genotype_mat_from_VCF(df):
     # Apply the binarize function to the columns with ".GT" at the end of their names
-    binary_genotype = df.filter(regex=".GT$").applymap(binarize)
+    binary_genotype = df.filter(regex=".GT$").applymap(data_manipulation.binarize)
     logging.debug("removing the .GT from the sample names")
     binary_genotype.columns = binary_genotype.columns.map(lambda x: x[:-3] if x.endswith('.GT') else x)
     logging.debug(f"Head of the binary genotype matrix:")
