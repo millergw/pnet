@@ -157,7 +157,7 @@ def to_dataloader(train_dataset, test_dataset, batch_size):
 
 def add_collinear(train_dataset, test_dataset, collinear_features):
     if isinstance(collinear_features, list):
-        for f in features:
+        for f in collinear_features:
             replace_collinear(train_dataset, test_dataset, f)
     else:
         for n in range(collinear_features):

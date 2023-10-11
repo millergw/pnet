@@ -104,21 +104,20 @@ def find_mapping(list_a, list_b, reverse_dict=False):
     return mapping
 
 
-def find_overlapping_columns(dataframes): # TODO: check if we should have a *dataframes here or not. Same for overlapping indicies function.
-    logging.info("Finding overlapping columns in the given list of {len(dataframes)} datasets")
+def find_overlapping_columns(*dataframes):
+    logging.info(f"Finding overlapping columns in the given list of {len(dataframes)} datasets")
     logging.debug("Ensure that at least two DataFrames are provided")
     if len(dataframes) < 2:
         raise ValueError("At least two DataFrames are required for finding overlaps.")
 
-    logging.debug("Get the columns of the first DataFrame")
-    overlapping_columns = set(dataframes[0].columns)
+    logging.debug("Extract column names from each DataFrame and convert them to sets")
+    column_sets = [set(df.columns) for df in dataframes]
 
-    logging.debug("Find the intersection of columns with each subsequent DataFrame")
-    for df in dataframes[1:]:
-        overlapping_columns = overlapping_columns.intersection(df.columns)
+    logging.debug("Find the intersection of all sets to get overlapping columns")
+    overlapping_columns = list(set.intersection(*column_sets))
 
     logging.info(f"We found {len(overlapping_columns)} overlapping columns")
-    return list(overlapping_columns)
+    return overlapping_columns
 
 
 def find_overlapping_indices(*dataframes):
@@ -127,15 +126,14 @@ def find_overlapping_indices(*dataframes):
     if len(dataframes) < 2:
         raise ValueError("At least two DataFrames are required for finding overlaps.")
 
-    logging.debug("Get the indices of the first DataFrame")
-    overlapping_indices = set(dataframes[0].index)
+    logging.debug("Extract index names from each DataFrame and convert them to sets")
+    indices_sets = [set(df.index) for df in dataframes]
 
-    logging.debug("Find the intersection of indices with each subsequent DataFrame")
-    for df in dataframes[1:]:
-        overlapping_indices = overlapping_indices.intersection(df.index)
-        
+    logging.debug("Find the intersection of all sets to get overlapping indices")
+    overlapping_indices = list(set.intersection(*indices_sets))
+
     logging.info(f"We found {len(overlapping_indices)} overlapping indices")
-    return list(overlapping_indices)
+    return overlapping_indices
 
 
 def find_overlapping_elements(*arrays):

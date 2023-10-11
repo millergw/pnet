@@ -1,7 +1,9 @@
 import data_manipulation # general data manipulations
+import vcf_manipulation # for manipulating the germline VCFs, filtering, etc
 import pandas as pd
 import numpy as np
 import logging
+import os
 
 logging.basicConfig(
             format='%(asctime)s %(levelname)-8s %(message)s',
@@ -46,22 +48,15 @@ def get_target(id_map_f, sample_metadata_f, id_to_use = "Tumor_Sample_Barcode", 
     return target
 
 
-def load_sample_metadata_and_target(id_map_f, sample_metadata_f):
-    # TODO: start here. Check if running this gets us to have all the columns as we would with the next ~7 lines of code; I think the output will be equivalent after we restrict to paired samples!
+def get_indices_from_file(indices_f):
+    pass
 
+
+def load_sample_metadata_and_target(id_map_f, sample_metadata_f):
     logging.info("Loading the sample metadata DF that has all the IDs and also our target, metastatic status ('is_met')")
     sample_metadata = load_sample_metadata_with_all_germline_ids(sample_metadata_f, id_map_f)
     logging.debug(sample_metadata.head())
     logging.debug(sample_metadata.shape)
-    # sample_metadata = load_sample_metadata_with_all_germline_ids(sample_metadata_f, id_map_f)
-    # logging.debug(sample_metadata.head())
-
-    # logging.info("Adding the mapping columns that let us pair germline with somatic in the future (namely the vcf_germline_id (germline) and the Tumor_Sample_Barcode (P-NET somatic)")
-    # sample_metadata = pd.merge(germline_somatic_id_map, sample_metadata, right_index=True, left_on="sample_metadata_germline_id",
-    #                suffixes=('', '_DROP')).filter(regex='^(?!.*_DROP)') # TODO: this is slick code to drop duplicate columns after a merge
-    # logging.debug(sample_metadata.head())
-    # logging.debug(sample_metadata.shape)
-
     return sample_metadata
 
 
@@ -108,6 +103,22 @@ def load_germline_mut(germline_vars_f):
     return germline_var_df
 
 
+def load_germline_metadata(metadata_f = "../data/prostate/pathogenic_variants_with_clinical_annotation_1341_aug2021_correlation.csv"):
+    logging.info(f"Loading the germline metadata file at {metadata_f}")
+    # the clinical metadata file can be indexed by ther germline ID ('sample_original')
+    met_col = "Disease_status_saud_edited"
+    id_col = "BamID_modified"
+    is_met_col = "is_met"
+    logging.debug(f"metadata_f: {metadata_f}")
+    metadata = pd.read_csv(metadata_f)
+    # create binary "is_met_col" column
+    metadata[is_met_col] = metadata[met_col].map({'Metastatic': 1,  'Primary': 0})
+    metadata = metadata.rename(columns={id_col: "germline_id", met_col: "disease_status"})
+    logging.debug(f"Head of the metadata DF:")
+    logging.debug(metadata.head())
+    return metadata
+
+
 def load_sample_metadata_with_all_germline_ids(sample_metadata_f="../data/prostate/pathogenic_variants_with_clinical_annotation_1341_aug2021_correlation.csv", 
                                                germline_somatic_id_map_f='../data/prostate/germline_somatic_id_map_outer_join.csv', 
                                                sample_metadata_germline_id_col="germline_id", 
@@ -137,18 +148,18 @@ def load_sample_metadata_with_all_germline_ids(sample_metadata_f="../data/prosta
 ##############################
 def get_genes_in_common(*dataframes): # TODO: test function
     logging.info("Finding overlapping genes across the DFs")
-    overlapping_genes = find_overlapping_columns(*dataframes)
+    overlapping_genes = data_manipulation.find_overlapping_columns(*dataframes)
     
     logging.info("Find the overlap between this and the pre-specified list of TCGA cancer genes and those expressed in the prostate")
     # TODO: looks like there was an excel misshap! MAR1 has become 1-Mar, 10-Sept, etc. But I don't think these genes are covered by our datasets anyway...
     genes = pd.read_csv('../../pnet_germline/data/pnet_database/genes/tcga_prostate_expressed_genes_and_cancer_genes.csv') 
     logging.debug(genes.head())
-    overlapping_genes = find_overlapping_elements(set(genes['genes']), overlapping_genes)
+    overlapping_genes = data_manipulation.find_overlapping_elements(set(genes['genes']), overlapping_genes)
 
     return overlapping_genes
 
 
-def restrict_to_genes_in_common(*datasets): # TODO: this is equivalent to filtering columns of a DF?? TODO: no longer true, filtering columns. Check the functionality of this.
+def restrict_to_genes_in_common(*datasets):
     """
     Filter the columns of the dataframe(s).
     Args:
@@ -156,7 +167,7 @@ def restrict_to_genes_in_common(*datasets): # TODO: this is equivalent to filter
     """
     # return df[genes_in_common].copy()
     genes_in_common = get_genes_in_common(*datasets)
-    restricted_dataframes = filter_to_specified_columns(genes_in_common, *datasets)
+    restricted_dataframes = data_manipulation.filter_to_specified_columns(genes_in_common, *datasets)
     return restricted_dataframes
 
 
@@ -250,7 +261,7 @@ def harmonize_prostate_ids(datasets_w_germline_ids, datasets_w_somatic_ids, conv
         altered_germline_datasets = []
         for df in datasets_w_germline_ids:
             df.index = convert_germline_id_to_somatic_id(df.index.tolist())   
-            df = drop_na_index_rows(df)
+            df = data_manipulation.drop_na_index_rows(df)
             altered_germline_datasets.append(df)     
         return altered_germline_datasets, datasets_w_somatic_ids
 
@@ -259,7 +270,7 @@ def harmonize_prostate_ids(datasets_w_germline_ids, datasets_w_somatic_ids, conv
         altered_somatic_datasets = []
         for df in datasets_w_somatic_ids:
             df.index = convert_somatic_id_to_germline_id(df.index.tolist())
-            df = drop_na_index_rows(df)
+            df = data_manipulation.drop_na_index_rows(df)
             altered_somatic_datasets.append(df)
         return datasets_w_germline_ids, altered_somatic_datasets
     
@@ -277,7 +288,7 @@ def convert_germline_id_to_somatic_id(germlineIDs, GERMLINE_DATADIR = "../../pne
     germline_somatic_id_map_f = os.path.join(GERMLINE_DATADIR, "prostate/germline_somatic_id_map_outer_join.csv")
     germline_somatic_id_map = data_manipulation.load_df_verbose(germline_somatic_id_map_f)
     logging.info("Converting list of germline IDs (vcf_germline_id) to somatic IDs (Tumor_Sample_Barcode).")
-    somaticIDs = convert_values(input_value=germlineIDs, 
+    somaticIDs = data_manipulation.convert_values(input_value=germlineIDs, 
                                 source=germline_somatic_id_map.vcf_germline_id.tolist(), 
                                 target=germline_somatic_id_map.Tumor_Sample_Barcode.tolist())
     return somaticIDs
@@ -292,7 +303,7 @@ def convert_somatic_id_to_germline_id(somaticIDs, GERMLINE_DATADIR = "../../pnet
     germline_somatic_id_map_f = os.path.join(GERMLINE_DATADIR, "prostate/germline_somatic_id_map_outer_join.csv")
     germline_somatic_id_map = data_manipulation.load_df_verbose(germline_somatic_id_map_f)
     logging.info("Converting list of somatic IDs (Tumor_Sample_Barcode) to germline IDs (vcf_germline_id).")
-    germlineIDs = convert_values(input_value=somaticIDs, 
+    germlineIDs = data_manipulation.convert_values(input_value=somaticIDs, 
                                 source=germline_somatic_id_map.Tumor_Sample_Barcode.tolist(),
                                 target=germline_somatic_id_map.vcf_germline_id.tolist() 
                                 )
@@ -302,7 +313,7 @@ def convert_somatic_id_to_germline_id(somaticIDs, GERMLINE_DATADIR = "../../pnet
 def zero_impute_somatic_datasets(germline_datasets, somatic_datasets, zero_impute_somatic = False): # TODO: test
     if zero_impute_somatic is True:
         logging.info(f"Starting process of zero-imputing the {len(somatic_datasets)} somatic dataset(s)")
-        germline_features = set(find_overlapping_columns(*germline_datasets))
+        germline_features = set(data_manipulation.find_overlapping_columns(*germline_datasets))
         imputed_dataframes = []
         for df in somatic_datasets:
             features_only_in_germline = germline_features - set(df.columns)
@@ -313,17 +324,17 @@ def zero_impute_somatic_datasets(germline_datasets, somatic_datasets, zero_imput
     
 
 def zero_impute_germline_datasets(germline_datasets, somatic_datasets, zero_impute_germline = True): # TODO: this is basically the same as the somatic version of the function; could make a more general single function
-    if zero_impute_germline is True:
-        """
-        Return: returns zero-imputed germline datasets if the zero_imput_germline flag is True. Otherwise, returns the unaltered datasets.
+    """
+    Return: returns zero-imputed germline datasets if the zero_imput_germline flag is True. Otherwise, returns the unaltered datasets.
 
-        Example of germline zero-imputation: 
-        For genes that are in the somatic dataset but not germline, add colum of zeros to the germline dataset. 
-        This way, we will keep all of the somatic data when we run P-NET 
-        (not subset down to whatever germline gene subset we're using).
-        """
+    Example of germline zero-imputation: 
+    For genes that are in the somatic dataset but not germline, add colum of zeros to the germline dataset. 
+    This way, we will keep all of the somatic data when we run P-NET 
+    (not subset down to whatever germline gene subset we're using).
+    """
+    if zero_impute_germline is True:
         logging.info(f"Starting process of zero-imputing the {len(germline_datasets)} germline datasets")
-        somatic_features = set(find_overlapping_columns(*somatic_datasets))
+        somatic_features = set(data_manipulation.find_overlapping_columns(*somatic_datasets))
         imputed_dataframes = []
         for df in germline_datasets:
             features_only_in_somatic = somatic_features - set(df.columns)

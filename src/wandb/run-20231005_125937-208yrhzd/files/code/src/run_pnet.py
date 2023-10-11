@@ -173,8 +173,25 @@ def main():
     # test_inds = pd.read_csv(os.path.join(PNET_SPLITS_DIR, "test_set.csv"), usecols=["id","response"], index_col="id").index.tolist()
                         
 
+    logging.info("# Train with run()")
+    logging.info("P-NET PAPER SPLIT: what are the results using the same data split as in the P-NET paper, albeit with fewer samples?")
+    train_dataset, test_dataset = pnet_loader.generate_train_test(genetic_data, y,
+                                                                 train_inds=training_inds,
+                                                                 test_inds=validation_inds)
+
+    # logging.info("POSITIVE CONTROL: can we overfit to the training data if we set many of the feature columns equal to the target column?")
+    # train_dataset, test_dataset = pnet_loader.generate_train_test(genetic_data, y,
+    #                                                              add_N_perfectly_correlated_with_target=50,
+    #                                                              train_inds=training_inds,
+    #                                                              test_inds=validation_inds
+    #                                                              )
+
+    logging.info("Build the Reactome network structure")
+    reactome_network = ReactomeNetwork.ReactomeNetwork(train_dataset.get_genes())
+
     logging.info("Define the hyperparameters of your modeling run")
     hparams={
+        'reactome_network':reactome_network, 
         'nbr_gene_inputs':len(genetic_data), 
         'dropout':0.2, 
         'additional_dims':0, 
@@ -194,57 +211,28 @@ def main():
         'restricted_to_pairs':USE_ONLY_PAIRED
     }
     
-    wandb.init(
+    run = wandb.init(
         # Set the project where this run will be logged
         project="prostate_met_status",
-        name="getting script running",
+        name="pnet_germline_somatic_paired",
         # Track hyperparameters and run metadata
         config=hparams
     )
 
-    # TODO: replace much of the below with the Pnet.run function: it encapsulates much of this.
-    logging.info("Train with Pnet.run()")
-    model, train_losses, test_losses, train_dataset, test_dataset = Pnet.run(genetic_data, y, save_path='../results/model', 
-             gene_set=None, additional_data=None, 
-             dropout=hparams['dropout'], input_dropout=0.5, lr=hparams['lr'], 
-             weight_decay=hparams['weight_decay'], batch_size=hparams['batch_size'], epochs=hparams['epochs'], 
-             verbose=hparams['verbose'], early_stopping=hparams['early_stopping'], 
-             train_inds=hparams['train_set_indices'], test_inds=hparams['validation_set_indices'], 
-             random_network=False, fcnn=False, task=None, loss_fn=None, loss_weight=None, aux_loss_weights=[2, 7, 20, 54, 148, 400])
-    
+    logging.info("make data loaders")
+    train_loader, val_loader = pnet_loader.to_dataloader(train_dataset, test_dataset, hparams['batch_size'])
 
-
-
-    # logging.info("P-NET PAPER SPLIT: what are the results using the same data split as in the P-NET paper, albeit with fewer samples?")
-    # train_dataset, test_dataset = pnet_loader.generate_train_test(genetic_data, y,
-    #                                                              train_inds=training_inds,
-    #                                                              test_inds=validation_inds)
-
-    # # logging.info("POSITIVE CONTROL: can we overfit to the training data if we set many of the feature columns equal to the target column?")
-    # # train_dataset, test_dataset = pnet_loader.generate_train_test(genetic_data, y,
-    # #                                                              add_N_perfectly_correlated_with_target=50,
-    # #                                                              train_inds=training_inds,
-    # #                                                              test_inds=validation_inds
-    # #                                                              )
-
-    # logging.info("Build the Reactome network structure")
-    # reactome_network = ReactomeNetwork.ReactomeNetwork(train_dataset.get_genes())
-
-    # logging.info("make data loaders")
-    # train_loader, val_loader = pnet_loader.to_dataloader(train_dataset, test_dataset, hparams['batch_size'])
-
-    # logging.info(f"run PNET")
-    # model = Pnet.PNET_NN(reactome_network=hparams['reactome_network'], 
-    #                      nbr_gene_inputs=hparams['nbr_gene_inputs'], 
-    #                      output_dim=hparams['output_dim'],
-    #                      dropout=hparams['dropout'],
-    #                      additional_dims=hparams['additional_dims'],
-    #                      lr=hparams['lr'], 
-    #                      weight_decay=hparams['weight_decay'],
-    #                      task='BC')
+    logging.info(f"run PNET")
+    model = Pnet.PNET_NN(reactome_network=hparams['reactome_network'], 
+                         nbr_gene_inputs=hparams['nbr_gene_inputs'], 
+                         output_dim=hparams['output_dim'],
+                         dropout=hparams['dropout'],
+                         additional_dims=hparams['additional_dims'],
+                         lr=hparams['lr'], 
+                         weight_decay=hparams['weight_decay'])
 
     
-    # model, train_losses, test_losses = Pnet.train(model, train_loader, val_loader, epochs=hparams['epochs'], verbose=hparams['verbose'], early_stopping=hparams['early_stopping'])
+    model, train_losses, test_losses = Pnet.train(model, train_loader, val_loader, epochs=hparams['epochs'], verbose=hparams['verbose'], early_stopping=hparams['early_stopping'])
     logging.info("Check model convergence by examining the plot of how loss changes over time")
     plt = report_and_eval.get_loss_plot(train_losses=train_losses, test_losses=test_losses)
     # instead of doing plt.show() do: # see https://docs.wandb.ai/guides/integrations/scikit
