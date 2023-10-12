@@ -38,11 +38,16 @@ def remove_whitespace_from_df(df):
 
 def make_path_if_needed(file_path):
     directory = os.path.dirname(file_path)
+    make_dir_if_needed(directory)
+    return
+
+
+def make_dir_if_needed(directory):
     if not os.path.exists(directory):
-        logging.debug(f"We're creating the non-existing directories in {directory}")
+        logging.debug(f"Path did not exist; making directory {directory}")
         os.makedirs(directory)
     return
-                      
+              
 
 def filename(f):
     return os.path.splitext(os.path.basename(f))[0]

@@ -213,8 +213,6 @@ def main():
              random_network=False, fcnn=False, task=None, loss_fn=None, loss_weight=None, aux_loss_weights=[2, 7, 20, 54, 148, 400])
     
 
-
-
     # logging.info("P-NET PAPER SPLIT: what are the results using the same data split as in the P-NET paper, albeit with fewer samples?")
     # train_dataset, test_dataset = pnet_loader.generate_train_test(genetic_data, y,
     #                                                              train_inds=training_inds,
@@ -251,21 +249,20 @@ def main():
     wandb.log({"convergence plot": plt})
     plt.show()
 
-
     logging.info("Get model predictions")
     y_train_preds, y_train_probas, y_test_preds, y_test_probas = report_and_eval.get_model_preds_and_probs(model, train_dataset, test_dataset)
 
     logging.info("Get train performance metrics") # TODO    
-    train_acc, train_cm = report_and_eval.get_performance_metrics(who="train", y_trues=train_dataset.y,
+    train_metric_dict = report_and_eval.get_performance_metrics(who="train", y_trues=train_dataset.y,
                                             y_preds=y_train_preds, y_probas=y_train_probas)
 
     logging.info("Get test performance metrics")
-    test_acc, test_cm, = report_and_eval.get_performance_metrics(who="val", y_trues=test_dataset.y, # TODO: hard-coded as validation
+    test_metric_dict = report_and_eval.get_performance_metrics(who="val", y_trues=test_dataset.y, # TODO: hard-coded as validation
                                             y_preds=y_test_preds, y_probas=y_test_probas)
 
-    report_and_eval.get_performance_metrics_wandb(model, # TODO: start here. how do I exactly get x_train? Is it train_dataset.x? What about train_dataset.additional?
-                                                  train_dataset.x, train_dataset.y, y_train_preds, 
-                                                  test_dataset.x, test_dataset.y, y_test_preds) 
+    # report_and_eval.get_summary_metrics_wandb(model, # TODO: start here. how do I exactly get x_train? Is it train_dataset.x? What about train_dataset.additional? # TODO: not sure I'm passing in the correct training datasets
+    #                                               train_dataset.x, train_dataset.y, y_train_preds, 
+    #                                               test_dataset.x, test_dataset.y, y_test_preds) 
 
     
     logging.info("ending wandb run")
