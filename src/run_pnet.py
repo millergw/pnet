@@ -249,6 +249,7 @@ def main():
     plt = report_and_eval.get_loss_plot(train_losses=train_losses, test_losses=test_losses)
     # instead of doing plt.show() do: # see https://docs.wandb.ai/guides/integrations/scikit
     wandb.log({"convergence plot": plt})
+    plt.show()
 
 
     logging.info("Get model predictions")

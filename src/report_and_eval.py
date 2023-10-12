@@ -130,9 +130,12 @@ def get_loss_plot(train_losses, test_losses,
     
 
 def get_pnet_preds_and_probs(pnet_dataset, model):
-    probs = torch.sigmoid(model(pnet_dataset.x, pnet_dataset.additional)).detach().numpy()
-    preds = [1 if i>0.5 else 0 for i in probs] # TODO: is this the best approach?
-    return preds, probs
+    model.to('cpu') # TODO: is this needed?
+    x = pnet_dataset.x
+    additional = pnet_dataset.additional
+    pred_probas = model.predict_proba(x, additional).detach()
+    preds = model.predict(x, additional).detach()
+    return preds, pred_probas
 
 
 def get_performance_metrics_old(model, train_dataset, test_dataset, config):
@@ -206,11 +209,6 @@ def get_performance_metrics(who, y_trues, y_preds, y_probas):
     wandb.run.summary[f'{who}_cm'] = confusion_matrix(y_trues, y_preds)
     wandb.run.summary[f"{who}_classification_report"] = classification_report(y_trues, y_preds) # expects true_labels, predicted_labels
     
-    # TODO: I think that wandb.run.summary is more appropriate since we want to log at the end of the experiment, not at each timestep
-    # wandb.log({
-    #     # f"{who}_confusion_matrix": plot_confusion_matrix(y_trues, y_preds), # expects true_labels, predicted_labels
-    #     f"{who}_classification_report": classification_report(y_trues, y_preds) # expects true_labels, predicted_labels
-    #           })    
     # TODO: delete the stuff below here; I think it is redundant
     logging.info(f"{who} set metrics")
     cm = confusion_matrix(y_trues, y_preds)
@@ -230,10 +228,9 @@ def get_performance_metrics_wandb(model, x_train, y_train, y_train_preds, x_test
     return
     
 
-
 def get_model_preds_and_probs(model, train_dataset, test_dataset, model_type = "pnet"):
     if model_type == "pnet":
-        logging.info("Working with model_type = {model_type}")
+        logging.info(f"Working with model_type = {model_type}")
         logging.info("Computing model predictions on train set")
         y_train_preds, y_train_probas = get_pnet_preds_and_probs(train_dataset, model)
         logging.info("Hist of model predictions on train set")
