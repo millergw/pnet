@@ -30,11 +30,19 @@ def get_germline_mutation(germline_vars_f):
 
 
 def get_somatic_amp_and_del(somatic_cnv_f):
-    logging.info("getting somatic amplification and deletion data")
+    logging.info("Getting somatic amplification and deletion data")
     cnv = load_somatic_cnv(somatic_cnv_f)
     somatic_amp = format_cnv_data(cnv, data_type='cnv_amp', cnv_levels=3, cnv_filter_single_event=True, mut_binary=False, selected_genes=None)
     somatic_del = format_cnv_data(cnv, data_type='cnv_del', cnv_levels=3, cnv_filter_single_event=True, mut_binary=False, selected_genes=None)
     return somatic_amp, somatic_del  
+
+
+def get_additional_data(additional_f, id_map_f, # TODO: ideally, wouldn't need two file paths, just one.... but we need a way to harmonize the IDs.
+                         cols_to_include = ['PCA1', 'PCA2', 'PCA3', 'PCA4', 'PCA5', 'PCA6', 'PCA7', 'PCA8', 'PCA9', 'PCA10']):
+    logging.info("Getting additional data")
+    additional_df = load_additional_data(additional_f, id_map_f, cols_to_include=cols_to_include)
+    additional_df = format_additional_data(additional_df)
+    return additional_df
 
 
 def get_target(id_map_f, sample_metadata_f, id_to_use = "Tumor_Sample_Barcode", target_col="is_met"):
@@ -62,7 +70,6 @@ def load_sample_metadata_and_target(id_map_f, sample_metadata_f):
 
 def extract_target(df, id_to_use = "Tumor_Sample_Barcode", target_col = "is_met"):
     assert id_to_use in df.columns.tolist(), "The ID you wanted to use isn't in the DF columns" # e.g. "Tumor_Sample_Barcode", "vcf_germline_ids"
-
     logging.info("Generating the target DF (target column '{target_col}' indexed by '{id}')")
     target = df.set_index(id_to_use).loc[:, [target_col]]
     logging.debug(target.head())
@@ -101,6 +108,16 @@ def load_germline_mut(germline_vars_f):
     germline_var_df = germline_var_df.set_index("Uploaded_variation")
     logging.info(f"Shape of raw germline mutation data: {germline_var_df.shape}")
     return germline_var_df
+
+
+def load_additional_data(additional_f, id_map_f, id_to_use = "Tumor_Sample_Barcode", # TODO: ideally, wouldn't need two file paths, just one.... but we need a way to harmonize the IDs.
+                         cols_to_include = ['PCA1', 'PCA2', 'PCA3', 'PCA4', 'PCA5', 'PCA6', 'PCA7', 'PCA8', 'PCA9', 'PCA10']
+):
+    logging.info(f"Load additional data from {additional_f}")
+    sample_metadata = load_sample_metadata_with_all_germline_ids(additional_f, id_map_f)
+    assert id_to_use in sample_metadata.columns.tolist(), f"The ID you wanted to use as index ({id_to_use}) isn't in the DF columns, which are \n{sample_metadata.columns.tolist()}" # e.g. "Tumor_Sample_Barcode", "vcf_germline_ids"
+    additional_data = sample_metadata.set_index(id_to_use).loc[:, cols_to_include]
+    return additional_data
 
 
 def load_germline_metadata(metadata_f = "../data/prostate/pathogenic_variants_with_clinical_annotation_1341_aug2021_correlation.csv"):
@@ -181,6 +198,17 @@ def format_mutation_data(mut_df, mut_binary=True):
         logging.info(f"Matrix was not binary. There were {max(mut_df.nunique())} unique values; binarizing now")
         mut_df[mut_df > 1.] = 1.
     return mut_df
+
+
+def format_additional_data(df): # TODO: write! Might need to re-code categorical variables, etc. Though, maybe good to do this separately/earlier and save down the results?
+    # if confounder_title != "(10 PCs as confounder)":
+    #     logging.info("One hot encoding any categorical variables")
+    #     print(f"Input shape before 1-hot: {X.shape}")
+    #     categorical_cols = ["inferred_ancestry_PCA_UMAP"]
+    #     numeric_cols = [i for i in X.columns.tolist() if i not in categorical_cols]
+    #     X = utils.encode_cat_vars_in_df(X, numeric_cols, categorical_cols)
+    #     print(f"Input shape after 1-hot: {X.shape}")
+    return df
 
 
 def format_germline_mutation_data(df):

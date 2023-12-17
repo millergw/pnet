@@ -315,5 +315,7 @@ class EarlyStopper:
             if self.verbose:
                 print('exceeded delta')
             if self.counter >= self.patience:
+                if self.verbose:
+                    print(f'exceeded our early-stopping patience of {self.patience}; stopping now')
                 return True
         return False

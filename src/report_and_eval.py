@@ -15,22 +15,25 @@ import os
 import json
 
 # Importing packages related to model performance
-from sklearn.metrics import confusion_matrix # expects true_labels, predicted_labels
 # from sklearn.metrics import plot_confusion_matrix
-from sklearn.metrics import classification_report # expects true_labels, predicted_labels
-from sklearn.metrics import roc_auc_score # expects true_labels, predicted_probs
-from sklearn.metrics import balanced_accuracy_score
-from sklearn.metrics import accuracy_score
-
+from sklearn.metrics import (
+    confusion_matrix, # expects true_labels, predicted_labels
+    classification_report, # expects true_labels, predicted_labels
+    roc_auc_score, # expects true_labels, predicted_probs
+    average_precision_score, # aka the AUC-PRC score
+    f1_score,
+    precision_score,
+    recall_score,
+    balanced_accuracy_score,
+    accuracy_score
+)
 import torch
 
 logging.basicConfig(
             format='%(asctime)s %(levelname)-8s %(message)s',
             level=logging.INFO,
             datefmt='%Y-%m-%d %H:%M:%S')
-
 logger = logging.getLogger()
-# logger.setLevel(logging.INFO)
 
 
 #################
@@ -44,10 +47,19 @@ def make_path_if_needed(file_path):
 
 
 def make_dir_if_needed(directory):
-    if not os.path.exists(directory):
-        logging.debug(f"Path did not exist; making directory {directory}")
+    if not os.path.isdir(directory) and directory != '':
+        logging.debug(f"Directory did not exist; making directory {directory}")
         os.makedirs(directory)
     return
+
+
+def savefig(plt, save_path, png=True, pdf=True):
+    make_path_if_needed(save_path)
+    logging.info(f"saving plot to {save_path}")
+    if png:
+        plt.savefig(save_path, bbox_inches='tight')
+    if pdf:
+        plt.savefig(f"{save_path}.pdf", format="pdf", bbox_inches='tight')
 
 
 def report_df_info(*dataframes, n=5): # TODO: use this instead of load_df_verbose
@@ -159,17 +171,21 @@ def get_performance_metrics(who, y_trues, y_preds, y_probas, save_dir=None):
     """
     assert who in ['train', 'test', 'val', 'validation'], f"Expected one of train, test, val, or validation but got '{who}'"
 
-    # TODO: add F1, auc_prc, and auc curve pdf as in Pnet.evaluate_interpret_save
+    # TODO: add auc curve pdf as in Pnet.evaluate_interpret_save
+    # logging.info(f"Logging {who} set ROC plot to W&B")
+
     metric_dict = {
         f"{who}_acc": accuracy_score(y_trues, y_preds, normalize=True),
         f"{who}_balanced_acc": balanced_accuracy_score(y_trues, y_preds),
         f"{who}_roc_auc_score": roc_auc_score(y_trues, y_probas),
-        f"{who}_cm": confusion_matrix(y_trues, y_preds),
-        f"{who}classification report": classification_report(y_trues, y_preds)
+        f"{who}_average_precision_score": average_precision_score(y_trues, y_probas),
+        f"{who}_f1_score": f1_score(y_trues, y_preds),
+        f"{who}_confusion_matrix\n": confusion_matrix(y_trues, y_preds).tolist(),
+        f"{who}_classification report\n": classification_report(y_trues, y_preds)
     }
 
     logging.info(f"{who} set metrics:")
-    for k,v in metric_dict:
+    for k,v in metric_dict.items():
         logging.info(f"{k}: {v}")
 
     if save_dir is not None:
@@ -178,10 +194,10 @@ def get_performance_metrics(who, y_trues, y_preds, y_probas, save_dir=None):
         logging.info(f"Saving dictionary of {who} set metrics to {p}")
         with open(p, 'w') as json_file:
             json.dump(metric_dict, json_file)
-
+            
     # TODO: should I break the W&B pieces into a different function?
     logging.info(f"Saving {who} set metrics to W&B:")
-    for k,v in metric_dict:
+    for k,v in metric_dict.items():
         wandb.run.summary[k] = v
     logging.info(f"Logging {who} set confusion matrix plot to W&B")
     wandb.sklearn.plot_confusion_matrix(y_trues, y_preds)
@@ -233,14 +249,21 @@ def get_pnet_feature_importances(model, who, pnet_dataset, save_dir = None):
     return gene_feature_importances, additional_feature_importances, gene_importances, layer_importance_scores
 
 
-def evaluate_interpret_save(model, pnet_dataset, who, save_dir): # TODO: start working here 10/12
+def evaluate_interpret_save(model, pnet_dataset, who, save_dir=None): # TODO: start working here 10/12
+    """
+    For a given trained P-NET model, get the model predictions, performance metrics, feature importances, and (optionally) save the results.
+    The model is evaluated on the `pnet_dataset`.
+    """
+    logging.info(f"Getting the model predictions on the {who} set, performance metrics, and feature importances")
     x = pnet_dataset.x
     additional = pnet_dataset.additional
     y_trues = pnet_dataset.y
+
     if save_dir is not None:
         make_dir_if_needed(save_dir)
+        logging.info(f"Results will be saved to {save_dir}.")
 
     y_preds, y_probas = get_pnet_preds_and_probs(model, pnet_dataset)
     metric_dict = get_performance_metrics(who, y_trues, y_preds, y_probas, save_dir)    
     gene_feature_importances, additional_feature_importances, gene_importances, layer_importance_scores = get_pnet_feature_importances(model, who, pnet_dataset, save_dir)
-    return
+    return metric_dict, gene_feature_importances, additional_feature_importances, gene_importances, layer_importance_scores

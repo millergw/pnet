@@ -72,7 +72,6 @@ mutations_dict = {"3'Flank": 'Silent',
 
 
 def main():
-    wandb.login()
     """# Load each of your data modalities of interest.
     Format should be samples x genes. Set the sample IDs as the index.
 
@@ -90,18 +89,29 @@ def main():
     We will be subsetting to the ~1060 samples that we have matched somatic and germline data for.
 
     NOTE: the PNET loader will automatically restrict the input data modalities to overlapping samples and overlapping genes. 
-    This means we will need to be carefull with our input germline dataset if we want to keep all the somatic data."""
-    
+    This means we will need to be carefull with our input germline dataset if we want to keep all the somatic data.
+    """
+    wandb.login()
+    wandb.init(
+        # Set the project where this run will be logged
+        project="prostate_met_status",
+        name="check_if_deterministic_2"
+    )
+    SEED = 123
+    Pnet.set_random_seeds(SEED)
+
     # TODO: eventually, want this overall structure of hyperparameters and function calls
-    USE_ONLY_PAIRED = True
+    USE_ONLY_PAIRED = True # TODO: note that only have 943 somatic with IDs mapping to the metadata as done here... but should be able to get all 1011 like in PNET paper
     CONVERT_IDS_TO = "somatic"
     ZERO_IMPUTE_GERMLINE = True
     ZERO_IMPUTE_SOMATIC = False
+    SAVE_DIR = '../results/prostate_val_somatic'
+    report_and_eval.make_dir_if_needed(SAVE_DIR)
 
     logging.debug("Defining paths for somatic data")
     SOMATIC_DATADIR = "../../pnet_germline/data/pnet_database/prostate/processed"
     somatic_mut_f = os.path.join(SOMATIC_DATADIR, "P1000_final_analysis_set_cross_important_only.csv")
-    somatic_cnv_f = os.path.join(SOMATIC_DATADIR, "P1000_data_CNA_paper.csv") # TODO: check how PNET implements splitting this into amp vs del
+    somatic_cnv_f = os.path.join(SOMATIC_DATADIR, "P1000_data_CNA_paper.csv")
     
     logging.debug("Defining paths for germline data")
     GERMLINE_DATADIR = "../../pnet_germline/data/"
@@ -112,23 +122,29 @@ def main():
     id_map_f = os.path.join(GERMLINE_DATADIR, "prostate/germline_somatic_id_map_outer_join.csv") # germline_somatic_id_map_f
     sample_metadata_f = os.path.join(GERMLINE_DATADIR,"prostate/pathogenic_variants_with_clinical_annotation_1341_aug2021_correlation.csv")
 
+    logging.debug("Defining path(s) for the confounder/clincial/additional data") # TODO: confounder work. start here?
+    additional_f = sample_metadata_f
+
     somatic_mut = prostate_data_loaders.get_somatic_mutation(somatic_mut_f)
     somatic_amp, somatic_del = prostate_data_loaders.get_somatic_amp_and_del(somatic_cnv_f)
-    germline_mut = prostate_data_loaders.get_germline_mutation(germline_vars_f)  
+    germline_mut = prostate_data_loaders.get_germline_mutation(germline_vars_f)  # TODO: need more flexibility in how we filter out variants, etc. Might need a separate file for pre-processing the germline VCF.
     y = prostate_data_loaders.get_target(id_map_f, sample_metadata_f, id_to_use="Tumor_Sample_Barcode", target_col="is_met")
-    # TODO: deal with adding confounder / "additional" dataset(s): get_confounders(), etc.
+    # TODO: deal with adding confounder / "additional" dataset(s): get_confounders(), etc. Is this different from "clinical_info" in Marc's code?
+    additional = prostate_data_loaders.get_additional_data(additional_f, id_map_f, cols_to_include = ['PCA1', 'PCA2', 'PCA3', 'PCA4', 'PCA5', 'PCA6', 'PCA7', 'PCA8', 'PCA9', 'PCA10'])
 
-    if USE_ONLY_PAIRED or CONVERT_IDS_TO: # Need to test the function going both ways, to somatic and to germline
+    if USE_ONLY_PAIRED or CONVERT_IDS_TO: # TODO: if only USE_ONLY_PAIRED, then we need to specify how to convert... or we just make the CONVERT_IDS_TO a required parameter TODO: Need to test the function going both ways, to somatic and to germline
         prostate_data_loaders.harmonize_prostate_ids(datasets_w_germline_ids=[germline_mut], 
-                               datasets_w_somatic_ids=[somatic_mut, somatic_amp, somatic_del, y], 
+                               datasets_w_somatic_ids=[somatic_mut, somatic_amp, somatic_del, additional, y], 
                                convert_ids_to=CONVERT_IDS_TO) # want to run stuff if change_to_somatic_ids or paired
     if USE_ONLY_PAIRED: # want to run stuff if paired; note that this will only work correctly if the IDs are correctly harmonized
         logging.info("Restrict to overlapping samples (the indices)")
-        somatic_mut, somatic_amp, somatic_del, germline_mut, y = data_manipulation.restrict_to_overlapping_indices(somatic_mut, somatic_amp, somatic_del, 
+        somatic_mut, somatic_amp, somatic_del, germline_mut, additional, y = data_manipulation.restrict_to_overlapping_indices(somatic_mut, somatic_amp, somatic_del, 
                                                                                                  germline_mut, 
+                                                                                                 additional,
                                                                                                  y)
 
     # zero impute dataset columns (genes) as necessary (maybe have a reference dataset vs all others? Unsure of best way to parameterize this function)
+    # NOTE: we only do the imputation on the genetic datasets for now, not the additional data (clincial, confounders, etc)
     [germline_mut] = prostate_data_loaders.zero_impute_germline_datasets(germline_datasets=[germline_mut], 
                                   somatic_datasets=[somatic_mut, somatic_amp, somatic_del], 
                                   zero_impute_germline=ZERO_IMPUTE_GERMLINE) 
@@ -137,18 +153,15 @@ def main():
                                  somatic_datasets=[somatic_mut, somatic_amp, somatic_del], 
                                  zero_impute_somatic=ZERO_IMPUTE_SOMATIC)
 
-
     logging.info("Now that we have processed all our datasets, we restrict to just the overlapping genes (the columns) (and further filter to those that fit some TCGA criteria)")
-    somatic_mut, somatic_amp, somatic_del, germline_mut = prostate_data_loaders.restrict_to_genes_in_common(somatic_mut, somatic_amp, somatic_del, germline_mut)
-    
+    somatic_mut, somatic_amp, somatic_del, germline_mut = prostate_data_loaders.restrict_to_genes_in_common(somatic_mut, somatic_amp, somatic_del, germline_mut)    
     
     # TODO: change so that the function call is inside a logging statement.
     df_dict = dict(zip(
-        ['somatic_mut', 'somatic_amp', 'somatic_del', 'germline_mut', 'y'], 
-        [somatic_mut, somatic_amp, somatic_del, germline_mut, y]
+        ['somatic_mut', 'somatic_amp', 'somatic_del', 'germline_mut', 'additional', 'y'], 
+        [somatic_mut, somatic_amp, somatic_del, germline_mut, additional, y]
     ))
     report_and_eval.report_df_info_with_names(df_dict, n=5)
-
 
     logging.info("Finished preparing data format. Now left with: making train/val/test splits, setting up model, running model, evaluate model")
 
@@ -161,8 +174,8 @@ def main():
     genetic_data = {
                     'somatic_amp': somatic_amp, 
                     'somatic_del': somatic_del,
-                    'somatic_mut': somatic_mut,
-                    'germline_mut': germline_mut
+                    'somatic_mut': somatic_mut#,
+                    # 'germline_mut': germline_mut
                    }
 
     genetic_data = {key: genetic_data[key] for key in DATASETS_TO_USE if key in genetic_data}
@@ -173,17 +186,17 @@ def main():
     # test_inds = pd.read_csv(os.path.join(PNET_SPLITS_DIR, "test_set.csv"), usecols=["id","response"], index_col="id").index.tolist()
                         
 
-    logging.info("Define the hyperparameters of your modeling run")
+    logging.info("Defining the hyperparameters of the modeling run")
     hparams={
         'nbr_gene_inputs':len(genetic_data), 
         'dropout':0.2, 
         'additional_dims':0, 
         'output_dim':1,
         'lr':1e-3, 
-        'weight_decay':1e-5,
-        'epochs':1000,
-        'early_stopping':False,
-        'batch_size':256,
+        'weight_decay':1e-3,
+        'epochs':500,
+        'early_stopping':True,
+        'batch_size':64,
         'verbose':True,
         'zero_impute_germline':ZERO_IMPUTE_GERMLINE,
         'zero_impute_somatic':ZERO_IMPUTE_SOMATIC,    
@@ -191,21 +204,19 @@ def main():
         'validation_set_indices_f':VALIDATION_SET_INDS_F,
         'train_set_indices':training_inds,
         'validation_set_indices':validation_inds,
-        'restricted_to_pairs':USE_ONLY_PAIRED
+        'restricted_to_pairs':USE_ONLY_PAIRED,
+        'dataset':list(genetic_data.keys()),
+        'random_seed':SEED
     }
     
-    wandb.init(
-        # Set the project where this run will be logged
-        project="prostate_met_status",
-        name="getting script running",
-        # Track hyperparameters and run metadata
-        config=hparams
-    )
+    logging.info("Adding hyperparameters and run metadata to Weights and Biases")
+    wandb.config.update(hparams)
 
     # TODO: replace much of the below with the Pnet.run function: it encapsulates much of this.
     logging.info("Train with Pnet.run()")
-    model, train_losses, test_losses, train_dataset, test_dataset = Pnet.run(genetic_data, y, save_path='../results/model', 
-             gene_set=None, additional_data=None, 
+    model, train_losses, test_losses, train_dataset, test_dataset = Pnet.run(genetic_data, y, 
+                                                                             save_path=os.path.join(SAVE_DIR, "model.pt"), # TODO: this has suddenly stopped working. I think the only big change was getting a different version of CUDA to match my version of PyTorch..
+             gene_set=None, additional_data=additional, # TODO: need some way of tracking which additional features are used. Maybe can extract and save with W&B? 
              dropout=hparams['dropout'], input_dropout=0.5, lr=hparams['lr'], 
              weight_decay=hparams['weight_decay'], batch_size=hparams['batch_size'], epochs=hparams['epochs'], 
              verbose=hparams['verbose'], early_stopping=hparams['early_stopping'], 
@@ -245,20 +256,28 @@ def main():
     # model, train_losses, test_losses = Pnet.train(model, train_loader, val_loader, epochs=hparams['epochs'], verbose=hparams['verbose'], early_stopping=hparams['early_stopping'])
     logging.info("Check model convergence by examining the plot of how loss changes over time")
     plt = report_and_eval.get_loss_plot(train_losses=train_losses, test_losses=test_losses)
+    report_and_eval.savefig(plt, os.path.join(SAVE_DIR, 'loss_over_time'))
     # instead of doing plt.show() do: # see https://docs.wandb.ai/guides/integrations/scikit
     wandb.log({"convergence plot": plt})
     plt.show()
 
-    logging.info("Get model predictions")
-    y_train_preds, y_train_probas, y_test_preds, y_test_probas = report_and_eval.get_model_preds_and_probs(model, train_dataset, test_dataset)
+    logging.info(f"Get the model predictions, performance metrics, feature importances, and save the results to {SAVE_DIR}.")
+    report_and_eval.evaluate_interpret_save(model, train_dataset, who="train", save_dir=SAVE_DIR)
+    report_and_eval.evaluate_interpret_save(model, test_dataset, who="val", save_dir=SAVE_DIR) # TODO: val is hardcoded
 
-    logging.info("Get train performance metrics") # TODO    
-    train_metric_dict = report_and_eval.get_performance_metrics(who="train", y_trues=train_dataset.y,
-                                            y_preds=y_train_preds, y_probas=y_train_probas)
 
-    logging.info("Get test performance metrics")
-    test_metric_dict = report_and_eval.get_performance_metrics(who="val", y_trues=test_dataset.y, # TODO: hard-coded as validation
-                                            y_preds=y_test_preds, y_probas=y_test_probas)
+    # logging.info("Get model predictions")
+    # y_train_preds, y_train_probas, y_test_preds, y_test_probas = report_and_eval.get_model_preds_and_probs(model, train_dataset, test_dataset)
+
+    # logging.info("Get train performance metrics") # TODO    
+    # train_metric_dict = report_and_eval.get_performance_metrics(who="train", y_trues=train_dataset.y,
+    #                                         y_preds=y_train_preds, y_probas=y_train_probas,
+    #                                         save_dir=SAVE_DIR)
+
+    # logging.info("Get test performance metrics")
+    # test_metric_dict = report_and_eval.get_performance_metrics(who="val", y_trues=test_dataset.y, # TODO: hard-coded as validation
+    #                                         y_preds=y_test_preds, y_probas=y_test_probas,
+    #                                         save_dir=SAVE_DIR)
 
     # report_and_eval.get_summary_metrics_wandb(model, # TODO: start here. how do I exactly get x_train? Is it train_dataset.x? What about train_dataset.additional? # TODO: not sure I'm passing in the correct training datasets
     #                                               train_dataset.x, train_dataset.y, y_train_preds, 

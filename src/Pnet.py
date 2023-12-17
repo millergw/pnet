@@ -16,6 +16,8 @@ import GenesetNetwork
 import pnet_loader
 from CustomizedLinear import masked_activation
 import util
+import wandb
+import random
 
 
 class PNET_Block(nn.Module):
@@ -424,6 +426,12 @@ def train(model, train_loader, test_loader, save_path, lr=0.5e-3, weight_decay=1
         test_epoch_loss = validate(model, test_loader)
         train_scores.append(train_epoch_loss)
         test_scores.append(test_epoch_loss)
+        # saving info to Weights and Biases
+        wandb.log({
+            "Train Loss": train_epoch_loss,
+            "Test Loss": test_epoch_loss
+        })
+
         if lr_scheduler:
             scheduler.step()
         if verbose:
@@ -595,3 +603,9 @@ def visualize_importances(feature_names, importances, title="Average Feature Imp
         plt.xticks(x_pos, feature_names, rotation=90)
         plt.xlabel(axis_title)
         plt.title(title)
+
+
+def set_random_seeds(random_seed):
+    torch.manual_seed(random_seed)
+    random.seed(random_seed)
+    np.random.seed(random_seed)

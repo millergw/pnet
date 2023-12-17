@@ -43,8 +43,8 @@ def make_path_if_needed(file_path):
 
 
 def make_dir_if_needed(directory):
-    if not os.path.exists(directory):
-        logging.debug(f"Path did not exist; making directory {directory}")
+    if not os.path.isdir(directory):
+        logging.debug(f"Directory did not exist; making directory {directory}")
         os.makedirs(directory)
     return
               
