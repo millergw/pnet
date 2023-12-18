@@ -359,8 +359,12 @@ def fit(model, dataloader, optimizer):
         device = torch.device('cpu')
     model.train()
     running_loss = 0.0
+    count = 0
     for batch in dataloader:
         gene_data, additional_data, y = batch
+        count +=1
+        if count <= 3:
+            logging.debug(f"train batch {count} y: {y}\ninds: {y.index}")
         gene_data, additional_data, y = gene_data.to(device), additional_data.to(device), y.to(device)
         optimizer.zero_grad()
         y_hat, y_hats = model(gene_data, additional_data)
@@ -388,8 +392,12 @@ def validate(model, dataloader):
         device = torch.device('cpu')
     model.eval()
     running_loss = 0.0
+    count = 0
     for batch in dataloader:
         gene_data, additional_data, y = batch
+        count +=1
+        if count <= 3:
+            logging.debug(f"train batch {count} y: {y}\ninds: {y.index}")
         gene_data, additional_data, y = gene_data.to(device), additional_data.to(device), y.to(device)
         y_hat, y_hats = model(gene_data, additional_data)
         if model.loss_weight is not None:
