@@ -18,7 +18,7 @@ from CustomizedLinear import masked_activation
 import util
 import wandb
 import random
-
+import logging
 
 class PNET_Block(nn.Module):
     def __init__(self, gene_mask, pathway_mask, activation='tanh', batchnorm=False, gene_dropout=None, dropout=None):
@@ -605,7 +605,10 @@ def visualize_importances(feature_names, importances, title="Average Feature Imp
         plt.title(title)
 
 
-def set_random_seeds(random_seed):
+def set_random_seeds(random_seed, turn_off_cuDNN=False):
     torch.manual_seed(random_seed)
     random.seed(random_seed)
     np.random.seed(random_seed)
+    if turn_off_cuDNN: 
+        logging.debug("We're making cuDNN deterministically select an algorithm for reproducibility purposes. This may reduce performance.")
+        torch.backends.cudnn.benchmark = False

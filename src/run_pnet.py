@@ -95,10 +95,10 @@ def main():
     wandb.init(
         # Set the project where this run will be logged
         project="prostate_met_status",
-        name="check_if_deterministic_2"
+        name="check_if_deterministic_0"
     )
     SEED = 123
-    Pnet.set_random_seeds(SEED)
+    Pnet.set_random_seeds(SEED, turn_off_cuDNN=True)
 
     # TODO: eventually, want this overall structure of hyperparameters and function calls
     USE_ONLY_PAIRED = True # TODO: note that only have 943 somatic with IDs mapping to the metadata as done here... but should be able to get all 1011 like in PNET paper
