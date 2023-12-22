@@ -95,7 +95,7 @@ def main():
     wandb.init(
         # Set the project where this run will be logged
         project="prostate_met_status",
-        name="check_if_deterministic_2"
+        name="check_if_deterministic_4"
     )
     SEED = 123
     Pnet.set_random_seeds(SEED, turn_off_cuDNN=True)
