@@ -364,7 +364,7 @@ def fit(model, dataloader, optimizer):
         gene_data, additional_data, y = batch
         count +=1
         if count <= 3:
-            logging.debug(f"train batch {count} y: {y}\ninds: {y.index}")
+            logging.info(f"train batch {count} where y is 1: {np.where(batch[2])[0]}")
         gene_data, additional_data, y = gene_data.to(device), additional_data.to(device), y.to(device)
         optimizer.zero_grad()
         y_hat, y_hats = model(gene_data, additional_data)
@@ -397,7 +397,7 @@ def validate(model, dataloader):
         gene_data, additional_data, y = batch
         count +=1
         if count <= 3:
-            logging.debug(f"train batch {count} y: {y}\ninds: {y.index}")
+            logging.info(f"test batch {count} where y is 1: {np.where(batch[2])[0]}")
         gene_data, additional_data, y = gene_data.to(device), additional_data.to(device), y.to(device)
         y_hat, y_hats = model(gene_data, additional_data)
         if model.loss_weight is not None:
@@ -614,9 +614,11 @@ def visualize_importances(feature_names, importances, title="Average Feature Imp
 
 
 def set_random_seeds(random_seed, turn_off_cuDNN=False):
-    torch.manual_seed(random_seed)
     random.seed(random_seed)
     np.random.seed(random_seed)
+    torch.manual_seed(random_seed)
+    torch.cuda.manual_seed(random_seed)
+    torch.cuda.manual_seed_all(random_seed) 
     if turn_off_cuDNN: 
         logging.debug("We're making cuDNN deterministically select an algorithm for reproducibility purposes. This may reduce performance.")
         torch.backends.cudnn.benchmark = False
