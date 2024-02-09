@@ -211,21 +211,65 @@ def get_summary_metrics_wandb(model, x_train, y_train, x_test, y_test):
     return
     
 
-def get_model_preds_and_probs(model, train_dataset, test_dataset, model_type = "pnet"):
-    if model_type == "pnet":
-        logging.info(f"Working with model_type = {model_type}")
-        logging.info("Computing model predictions on train set")
-        y_train_preds, y_train_probas = get_pnet_preds_and_probs(model, train_dataset)
-        logging.info("Hist of model predictions on train set")
-        plt.hist(y_train_preds)
+def get_train_test_manual_split(x, y, train_inds, test_inds):
+    """
+    Get manual train-test split based on specified indices.
 
-        logging.info("Computing model predictions on test set")
-        y_test_preds, y_test_probas = get_pnet_preds_and_probs(model, test_dataset)
-        logging.info("Hist of model predictions on test set")
-        plt.hist(y_test_preds)   
+    Parameters:
+    - x: Features (input data, e.g., NumPy array or pandas DataFrame).
+    - y: Labels (output data, e.g., NumPy array or pandas Series).
+    - train_inds: List of indices for the training set.
+    - test_inds: List of indices for the testing set.
+
+    Returns:
+    - X_train: Features for the training set.
+    - X_test: Features for the testing set.
+    - y_train: Labels for the training set.
+    - y_test: Labels for the testing set.
+    """
+    logging.info("CAUTION: this `get_train_test_manual_split` is an untested function. TODO: check functionality.")
+
+    # Assuming 'x' is a NumPy array or pandas DataFrame
+    X_train = x[train_inds]
+    X_test = x[test_inds]
+
+    # Assuming 'y' is a NumPy array or pandas Series
+    y_train = y[train_inds]
+    y_test = y[test_inds]
+
+    return X_train, X_test, y_train, y_test
+
+
+
+def get_model_preds_and_probs(model, who, model_type = "pnet", pnet_dataset=None, x=None, verbose=False):
+    logging.info(f"Model_type = {model_type}. Computing model predictions on {who} set")
+    if model_type == 'pnet':
+        y_preds, y_probas = get_pnet_preds_and_probs(model, pnet_dataset)
+    elif model_type in ['rf', 'bdt']:
+        y_preds, y_probas = get_sklearn_model_preds_and_probs(model, x)
     else:
         logging.error(f"We haven't implemented for the model type you specified, which was {model_type}")
-    return  y_train_preds, y_train_probas, y_test_preds, y_test_probas
+    if verbose:
+        logging.info(f"Hist of model prediction probabilities on {who} set")
+        plt.hist(y_probas)
+        plt.show()
+    return  y_preds, y_probas
+
+
+def get_sklearn_model_preds_and_probs(sklearn_model, x):
+    preds = sklearn_model.predict(x)
+    pred_probs = sklearn_model.predict_proba(x)
+    return preds, pred_probs
+
+
+def get_sklearn_feature_importances(sklearn_model, who, input_df, save_dir=None):
+    importances = sklearn_model.feature_importances_
+    gene_feature_importances = pd.Series(importances, index=input_df.columns) # TODO: check if this is the correct index
+    if save_dir is not None:
+        make_dir_if_needed(save_dir)
+        logging.info(f"Saving feature importance information to {save_dir}")
+        gene_feature_importances.to_csv(os.path.join(save_dir,f'{who}_gene_feature_importances.csv'))
+    return gene_feature_importances
 
 
 def get_pnet_feature_importances(model, who, pnet_dataset, save_dir = None):
@@ -249,21 +293,39 @@ def get_pnet_feature_importances(model, who, pnet_dataset, save_dir = None):
     return gene_feature_importances, additional_feature_importances, gene_importances, layer_importance_scores
 
 
-def evaluate_interpret_save(model, pnet_dataset, who, save_dir=None): # TODO: start working here 10/12
+def evaluate_interpret_save(model, who, model_type, pnet_dataset=None, x=None, y=None, save_dir=None):
     """
-    For a given trained P-NET model, get the model predictions, performance metrics, feature importances, and (optionally) save the results.
-    The model is evaluated on the `pnet_dataset`.
+    For a given trained model of type `model_type' (e.g. P-NET, RF, BDT), get the model predictions, performance metrics, feature importances, and (optionally) save the results.
+    The model is evaluated on the `dataset`.
     """
-    logging.info(f"Getting the model predictions on the {who} set, performance metrics, and feature importances")
-    x = pnet_dataset.x
-    additional = pnet_dataset.additional
-    y_trues = pnet_dataset.y
-
     if save_dir is not None:
         make_dir_if_needed(save_dir)
         logging.info(f"Results will be saved to {save_dir}.")
+    
+    # TODO: need a universal way to get the X vs y components of the `pnet_dataset`
+    if model_type == 'pnet':
+        y = pnet_dataset.y
+        logging.info(f"Getting the {model_type} model predictions on the {who} set, performance metrics, and feature importances (if applicable)")
+        y_preds, y_probas = get_model_preds_and_probs(model=model, pnet_dataset=pnet_dataset, who=who, model_type=model_type)
+        metric_dict = get_performance_metrics(who, y, y_preds, y_probas, save_dir) # TODO: this is universal, and should get pulled out   
+        gene_feature_importances, additional_feature_importances, gene_importances, layer_importance_scores = get_pnet_feature_importances(model, who, pnet_dataset, save_dir)
+        return metric_dict, gene_feature_importances, additional_feature_importances, gene_importances, layer_importance_scores
 
-    y_preds, y_probas = get_pnet_preds_and_probs(model, pnet_dataset)
-    metric_dict = get_performance_metrics(who, y_trues, y_preds, y_probas, save_dir)    
-    gene_feature_importances, additional_feature_importances, gene_importances, layer_importance_scores = get_pnet_feature_importances(model, who, pnet_dataset, save_dir)
-    return metric_dict, gene_feature_importances, additional_feature_importances, gene_importances, layer_importance_scores
+    elif model_type in ['rf', 'bdt']:
+        logging.info(f"Getting the {model_type} model predictions on the {who} set, performance metrics, and feature importances (if applicable)")
+        x = pnet_dataset.x
+        additional= pnet_dataset.additional
+        y = pnet_dataset.y.ravel()
+        input_df = pnet_dataset.input_df
+
+        y_preds, y_probas = get_model_preds_and_probs(model=model, x=x, who=who, model_type=model_type)
+        # If the positive class is class 1, use the probabilities for that class
+        y_probas = y_probas[:, 1]
+
+        metric_dict = get_performance_metrics(who, y, y_preds, y_probas, save_dir)    
+        gene_feature_importances = get_sklearn_feature_importances(model, who=who, input_df=input_df, save_dir=save_dir)
+        return gene_feature_importances
+    
+    else:
+        logging.error(f"We haven't implemented for the model type you specified, which was {model_type}")
+    return

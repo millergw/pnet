@@ -99,6 +99,7 @@ def main():
     )
     SEED = 123
     Pnet.set_random_seeds(SEED, turn_off_cuDNN=True)
+    MODEL_TYPE="pnet"
 
     # TODO: eventually, want this overall structure of hyperparameters and function calls
     USE_ONLY_PAIRED = True # TODO: note that only have 943 somatic with IDs mapping to the metadata as done here... but should be able to get all 1011 like in PNET paper
@@ -206,13 +207,15 @@ def main():
         'validation_set_indices':validation_inds,
         'restricted_to_pairs':USE_ONLY_PAIRED,
         'dataset':list(genetic_data.keys()),
-        'random_seed':SEED
+        'random_seed':SEED,
+        'model_type':MODEL_TYPE,
     }
     
     logging.info("Adding hyperparameters and run metadata to Weights and Biases")
     wandb.config.update(hparams)
 
     # TODO: replace much of the below with the Pnet.run function: it encapsulates much of this.
+
     logging.info("Train with Pnet.run()")
     model, train_losses, test_losses, train_dataset, test_dataset = Pnet.run(genetic_data, y, 
                                                                              save_path=os.path.join(SAVE_DIR, "model.pt"), # TODO: this has suddenly stopped working. I think the only big change was getting a different version of CUDA to match my version of PyTorch..
@@ -262,8 +265,8 @@ def main():
     plt.show()
 
     logging.info(f"Get the model predictions, performance metrics, feature importances, and save the results to {SAVE_DIR}.")
-    report_and_eval.evaluate_interpret_save(model, train_dataset, who="train", save_dir=SAVE_DIR)
-    report_and_eval.evaluate_interpret_save(model, test_dataset, who="val", save_dir=SAVE_DIR) # TODO: val is hardcoded
+    report_and_eval.evaluate_interpret_save(model=model, pnet_dataset=train_dataset, model_type=MODEL_TYPE, who="train", save_dir=SAVE_DIR)
+    report_and_eval.evaluate_interpret_save(model=model, pnet_dataset=test_dataset, model_type=MODEL_TYPE, who="val", save_dir=SAVE_DIR) # TODO: val is hardcoded
 
 
     # logging.info("Get model predictions")
