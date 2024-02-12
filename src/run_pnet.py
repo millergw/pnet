@@ -177,8 +177,8 @@ def main():
     genetic_data = {
                     'somatic_amp': somatic_amp, 
                     'somatic_del': somatic_del,
-                    'somatic_mut': somatic_mut#,
-                    # 'germline_mut': germline_mut,
+                    'somatic_mut': somatic_mut,
+                    'germline_mut': germline_mut,
                    }
 
     genetic_data = {key: genetic_data[key] for key in DATASETS_TO_USE if key in genetic_data}
@@ -217,8 +217,6 @@ def main():
     logging.info("Adding hyperparameters and run metadata to Weights and Biases")
     wandb.config.update(hparams)
 
-    # TODO: replace much of the below with the Pnet.run function: it encapsulates much of this.
-
     logging.info("Train with Pnet.run()")
     model, train_losses, test_losses, train_dataset, test_dataset = Pnet.run(genetic_data, y, 
                                                                              save_path=os.path.join(SAVE_DIR, "model.pt"), # TODO: this has suddenly stopped working. I think the only big change was getting a different version of CUDA to match my version of PyTorch..
@@ -229,35 +227,6 @@ def main():
              train_inds=hparams['train_set_indices'], test_inds=hparams['evaluation_set_indices'], 
              random_network=False, fcnn=False, task=None, loss_fn=None, loss_weight=None, aux_loss_weights=[2, 7, 20, 54, 148, 400])
     
-
-    # logging.info("P-NET PAPER SPLIT: what are the results using the same data split as in the P-NET paper, albeit with fewer samples?")
-    # train_dataset, test_dataset = pnet_loader.generate_train_test(genetic_data, y,
-    #                                                              train_inds=training_inds,
-    #                                                              test_inds=evaluation_inds)
-
-    # # logging.info("POSITIVE CONTROL: can we overfit to the training data if we set many of the feature columns equal to the target column?")
-    # # train_dataset, test_dataset = pnet_loader.generate_train_test(genetic_data, y,
-    # #                                                              add_N_perfectly_correlated_with_target=50,
-    # #                                                              train_inds=training_inds,
-    # #                                                              test_inds=evaluation_inds
-    # #                                                              )
-
-    # logging.info("Build the Reactome network structure")
-    # reactome_network = ReactomeNetwork.ReactomeNetwork(train_dataset.get_genes())
-
-    # logging.info("make data loaders")
-    # train_loader, val_loader = pnet_loader.to_dataloader(train_dataset, test_dataset, hparams['batch_size'])
-
-    # logging.info(f"run PNET")
-    # model = Pnet.PNET_NN(reactome_network=hparams['reactome_network'], 
-    #                      nbr_gene_inputs=hparams['nbr_gene_inputs'], 
-    #                      output_dim=hparams['output_dim'],
-    #                      dropout=hparams['dropout'],
-    #                      additional_dims=hparams['additional_dims'],
-    #                      lr=hparams['lr'], 
-    #                      weight_decay=hparams['weight_decay'],
-    #                      task='BC')
-
     
     # model, train_losses, test_losses = Pnet.train(model, train_loader, val_loader, epochs=hparams['epochs'], verbose=hparams['verbose'], early_stopping=hparams['early_stopping'])
     logging.info("Check model convergence by examining the plot of how loss changes over time")
@@ -270,25 +239,6 @@ def main():
     logging.info(f"Get the model predictions, performance metrics, feature importances, and save the results to {SAVE_DIR}.")
     report_and_eval.evaluate_interpret_save(model=model, pnet_dataset=train_dataset, model_type=MODEL_TYPE, who="train", save_dir=SAVE_DIR)
     report_and_eval.evaluate_interpret_save(model=model, pnet_dataset=test_dataset, model_type=MODEL_TYPE, who=EVALUATION_SET, save_dir=SAVE_DIR) # TODO: val is hardcoded
-
-
-    # logging.info("Get model predictions")
-    # y_train_preds, y_train_probas, y_test_preds, y_test_probas = report_and_eval.get_model_preds_and_probs(model, train_dataset, test_dataset)
-
-    # logging.info("Get train performance metrics") # TODO    
-    # train_metric_dict = report_and_eval.get_performance_metrics(who="train", y_trues=train_dataset.y,
-    #                                         y_preds=y_train_preds, y_probas=y_train_probas,
-    #                                         save_dir=SAVE_DIR)
-
-    # logging.info("Get test performance metrics")
-    # test_metric_dict = report_and_eval.get_performance_metrics(who=EVALUATION_SET, y_trues=test_dataset.y,
-    #                                         y_preds=y_test_preds, y_probas=y_test_probas,
-    #                                         save_dir=SAVE_DIR)
-
-    # report_and_eval.get_summary_metrics_wandb(model, # TODO: start here. how do I exactly get x_train? Is it train_dataset.x? What about train_dataset.additional? # TODO: not sure I'm passing in the correct training datasets
-    #                                               train_dataset.x, train_dataset.y, y_train_preds, 
-    #                                               test_dataset.x, test_dataset.y, y_test_preds) 
-
     
     logging.info("ending wandb run")
     wandb.finish()
