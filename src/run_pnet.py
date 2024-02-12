@@ -106,7 +106,8 @@ def main():
     CONVERT_IDS_TO = "somatic"
     ZERO_IMPUTE_GERMLINE = True
     ZERO_IMPUTE_SOMATIC = False
-    SAVE_DIR = '../results/prostate_val_somatic'
+    EVALUATION_SET = 'test' # val
+    SAVE_DIR = f'../results/{MODEL_TYPE}_eval_set_{EVALUATION_SET}'
     report_and_eval.make_dir_if_needed(SAVE_DIR)
 
     logging.debug("Defining paths for somatic data")
@@ -170,21 +171,21 @@ def main():
     logging.info("# Generate the PNET loader")
     PNET_SPLITS_DIR = "../../pnet_germline/data/pnet_database/prostate/splits"
     TRAIN_SET_INDS_F = os.path.join(PNET_SPLITS_DIR, "training_set.csv")
-    VALIDATION_SET_INDS_F = os.path.join(PNET_SPLITS_DIR, "validation_set.csv")
+    EVALUATION_SET_INDS_F = os.path.join(PNET_SPLITS_DIR, "test_set.csv") # TODO: need to manually change this each time.. bring up to top?
+
     DATASETS_TO_USE = ['somatic_amp', 'somatic_del', 'somatic_mut', 'germline_mut']
     genetic_data = {
                     'somatic_amp': somatic_amp, 
                     'somatic_del': somatic_del,
                     'somatic_mut': somatic_mut#,
-                    # 'germline_mut': germline_mut
+                    # 'germline_mut': germline_mut,
                    }
 
     genetic_data = {key: genetic_data[key] for key in DATASETS_TO_USE if key in genetic_data}
     logging.info(f"Dictionary keys of datasets we will use: {genetic_data.keys()}")
 
     training_inds = pd.read_csv(TRAIN_SET_INDS_F, usecols=["id","response"], index_col="id").index.tolist()
-    validation_inds = pd.read_csv(VALIDATION_SET_INDS_F, usecols=["id","response"], index_col="id").index.tolist()
-    # test_inds = pd.read_csv(os.path.join(PNET_SPLITS_DIR, "test_set.csv"), usecols=["id","response"], index_col="id").index.tolist()
+    evaluation_inds = pd.read_csv(EVALUATION_SET_INDS_F, usecols=["id","response"], index_col="id").index.tolist()
                         
 
     logging.info("Defining the hyperparameters of the modeling run")
@@ -202,13 +203,15 @@ def main():
         'zero_impute_germline':ZERO_IMPUTE_GERMLINE,
         'zero_impute_somatic':ZERO_IMPUTE_SOMATIC,    
         'train_set_indices_f':TRAIN_SET_INDS_F,
-        'validation_set_indices_f':VALIDATION_SET_INDS_F,
+        'evaluation_set_indices_f':EVALUATION_SET_INDS_F,
         'train_set_indices':training_inds,
-        'validation_set_indices':validation_inds,
+        'evaluation_set_indices':evaluation_inds,
         'restricted_to_pairs':USE_ONLY_PAIRED,
         'dataset':list(genetic_data.keys()),
         'random_seed':SEED,
         'model_type':MODEL_TYPE,
+        'evaluation_set': EVALUATION_SET,
+        'save_dir': SAVE_DIR,
     }
     
     logging.info("Adding hyperparameters and run metadata to Weights and Biases")
@@ -223,20 +226,20 @@ def main():
              dropout=hparams['dropout'], input_dropout=0.5, lr=hparams['lr'], 
              weight_decay=hparams['weight_decay'], batch_size=hparams['batch_size'], epochs=hparams['epochs'], 
              verbose=hparams['verbose'], early_stopping=hparams['early_stopping'], 
-             train_inds=hparams['train_set_indices'], test_inds=hparams['validation_set_indices'], 
+             train_inds=hparams['train_set_indices'], test_inds=hparams['evaluation_set_indices'], 
              random_network=False, fcnn=False, task=None, loss_fn=None, loss_weight=None, aux_loss_weights=[2, 7, 20, 54, 148, 400])
     
 
     # logging.info("P-NET PAPER SPLIT: what are the results using the same data split as in the P-NET paper, albeit with fewer samples?")
     # train_dataset, test_dataset = pnet_loader.generate_train_test(genetic_data, y,
     #                                                              train_inds=training_inds,
-    #                                                              test_inds=validation_inds)
+    #                                                              test_inds=evaluation_inds)
 
     # # logging.info("POSITIVE CONTROL: can we overfit to the training data if we set many of the feature columns equal to the target column?")
     # # train_dataset, test_dataset = pnet_loader.generate_train_test(genetic_data, y,
     # #                                                              add_N_perfectly_correlated_with_target=50,
     # #                                                              train_inds=training_inds,
-    # #                                                              test_inds=validation_inds
+    # #                                                              test_inds=evaluation_inds
     # #                                                              )
 
     # logging.info("Build the Reactome network structure")
@@ -266,7 +269,7 @@ def main():
 
     logging.info(f"Get the model predictions, performance metrics, feature importances, and save the results to {SAVE_DIR}.")
     report_and_eval.evaluate_interpret_save(model=model, pnet_dataset=train_dataset, model_type=MODEL_TYPE, who="train", save_dir=SAVE_DIR)
-    report_and_eval.evaluate_interpret_save(model=model, pnet_dataset=test_dataset, model_type=MODEL_TYPE, who="val", save_dir=SAVE_DIR) # TODO: val is hardcoded
+    report_and_eval.evaluate_interpret_save(model=model, pnet_dataset=test_dataset, model_type=MODEL_TYPE, who=EVALUATION_SET, save_dir=SAVE_DIR) # TODO: val is hardcoded
 
 
     # logging.info("Get model predictions")
@@ -278,7 +281,7 @@ def main():
     #                                         save_dir=SAVE_DIR)
 
     # logging.info("Get test performance metrics")
-    # test_metric_dict = report_and_eval.get_performance_metrics(who="val", y_trues=test_dataset.y, # TODO: hard-coded as validation
+    # test_metric_dict = report_and_eval.get_performance_metrics(who=EVALUATION_SET, y_trues=test_dataset.y,
     #                                         y_preds=y_test_preds, y_probas=y_test_probas,
     #                                         save_dir=SAVE_DIR)
 
