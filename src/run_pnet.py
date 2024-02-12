@@ -95,7 +95,7 @@ def main():
     wandb.init(
         # Set the project where this run will be logged
         project="prostate_met_status",
-        name="check_if_deterministic_4"
+        group="pnet_somatic_and_germline_001"
     )
     SEED = 123
     Pnet.set_random_seeds(SEED, turn_off_cuDNN=True)
@@ -106,7 +106,7 @@ def main():
     CONVERT_IDS_TO = "somatic"
     ZERO_IMPUTE_GERMLINE = True
     ZERO_IMPUTE_SOMATIC = False
-    EVALUATION_SET = 'test' # val
+    EVALUATION_SET = 'test' # validation (NOTE: will also set the file name. TODO: add a check to ensure that it's a real file?)
     SAVE_DIR = f'../results/{MODEL_TYPE}_eval_set_{EVALUATION_SET}'
     report_and_eval.make_dir_if_needed(SAVE_DIR)
 
@@ -117,7 +117,6 @@ def main():
     
     logging.debug("Defining paths for germline data")
     GERMLINE_DATADIR = "../../pnet_germline/data/"
-    # germline_vars_f = os.path.join(GERMLINE_DATADIR, "prostate/prostate_germline_vcf_subset_to_germline_tier_1and2_pathogenic_vars_only.txt")
     germline_vars_f = os.path.join(GERMLINE_DATADIR, "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_pathogenic_vars_only.txt")
 
     logging.debug("Defining paths for the sample metadata")
@@ -171,7 +170,7 @@ def main():
     logging.info("# Generate the PNET loader")
     PNET_SPLITS_DIR = "../../pnet_germline/data/pnet_database/prostate/splits"
     TRAIN_SET_INDS_F = os.path.join(PNET_SPLITS_DIR, "training_set.csv")
-    EVALUATION_SET_INDS_F = os.path.join(PNET_SPLITS_DIR, "test_set.csv") # TODO: need to manually change this each time.. bring up to top?
+    EVALUATION_SET_INDS_F = os.path.join(PNET_SPLITS_DIR, f"{EVALUATION_SET}_set.csv")
 
     DATASETS_TO_USE = ['somatic_amp', 'somatic_del', 'somatic_mut', 'germline_mut']
     genetic_data = {
@@ -187,7 +186,6 @@ def main():
     training_inds = pd.read_csv(TRAIN_SET_INDS_F, usecols=["id","response"], index_col="id").index.tolist()
     evaluation_inds = pd.read_csv(EVALUATION_SET_INDS_F, usecols=["id","response"], index_col="id").index.tolist()
                         
-
     logging.info("Defining the hyperparameters of the modeling run")
     hparams={
         'nbr_gene_inputs':len(genetic_data), 
@@ -196,7 +194,7 @@ def main():
         'output_dim':1,
         'lr':1e-3, 
         'weight_decay':1e-3,
-        'epochs':3, # 500
+        'epochs':500, # 500, 3 if testing something
         'early_stopping':True,
         'batch_size':64,
         'verbose':True,
@@ -228,7 +226,6 @@ def main():
              random_network=False, fcnn=False, task=None, loss_fn=None, loss_weight=None, aux_loss_weights=[2, 7, 20, 54, 148, 400])
     
     
-    # model, train_losses, test_losses = Pnet.train(model, train_loader, val_loader, epochs=hparams['epochs'], verbose=hparams['verbose'], early_stopping=hparams['early_stopping'])
     logging.info("Check model convergence by examining the plot of how loss changes over time")
     plt = report_and_eval.get_loss_plot(train_losses=train_losses, test_losses=test_losses)
     report_and_eval.savefig(plt, os.path.join(SAVE_DIR, 'loss_over_time'))
