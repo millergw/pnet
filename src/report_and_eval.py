@@ -321,7 +321,7 @@ def evaluate_interpret_save(model, who, model_type, pnet_dataset=None, x=None, y
             'layer_importance_scores':layer_importance_scores,
         }
         for k,v in importances.items():
-            wandb.run.summary[k] = v
+            wandb.run.summary[k] = v.to_dict() # TODO: haven't tested and I expect it might not work for everything, some some might be a list?
         return metric_dict, gene_feature_importances, additional_feature_importances, gene_importances, layer_importance_scores
 
     elif model_type in ['rf', 'bdt']:
@@ -336,7 +336,7 @@ def evaluate_interpret_save(model, who, model_type, pnet_dataset=None, x=None, y
 
         metric_dict = get_performance_metrics(who, y, y_preds, y_probas, save_dir)    
         gene_feature_importances = get_sklearn_feature_importances(model, who=who, input_df=input_df, save_dir=save_dir)
-        wandb.run.summary["gene_feature_importances"] = gene_feature_importances
+        wandb.run.summary["gene_feature_importances"] = gene_feature_importances.to_dict()
         return gene_feature_importances
     
     else:
