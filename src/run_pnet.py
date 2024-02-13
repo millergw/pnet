@@ -16,6 +16,7 @@ import data_manipulation
 import vcf_manipulation
 import prostate_data_loaders
 import report_and_eval
+import model_selection
 
 import wandb
 import pandas as pd
@@ -185,7 +186,7 @@ def main():
 
     training_inds = pd.read_csv(TRAIN_SET_INDS_F, usecols=["id","response"], index_col="id").index.tolist()
     evaluation_inds = pd.read_csv(EVALUATION_SET_INDS_F, usecols=["id","response"], index_col="id").index.tolist()
-                        
+
     logging.info("Defining the hyperparameters of the modeling run")
     hparams={
         'nbr_gene_inputs':len(genetic_data), 
@@ -214,28 +215,45 @@ def main():
     
     logging.info("Adding hyperparameters and run metadata to Weights and Biases")
     wandb.config.update(hparams)
+    if MODEL_TYPE in ['rf', 'bdt']:
+        logging.info("Loading data and making data splits")
+        train_dataset, test_dataset = pnet_loader.generate_train_test(genetic_data, target=y, train_inds=training_inds, test_inds=evaluation_inds, gene_set=None)
+        logging.info("Merging the genetic data and additional data (e.g. confounders). Updating the input_df and x attributes.")
+        train_dataset.input_df = pd.concat([train_dataset.input_df, train_dataset.additional_data], axis=1)
+        train_dataset.x = torch.cat([train_dataset.x, train_dataset.additional], dim=1)
+        test_dataset.input_df = pd.concat([test_dataset.input_df, test_dataset.additional_data], axis=1)
+        test_dataset.x = torch.cat([test_dataset.x, test_dataset.additional], dim=1)
 
-    logging.info("Train with Pnet.run()")
-    model, train_losses, test_losses, train_dataset, test_dataset = Pnet.run(genetic_data, y, 
-                                                                             save_path=os.path.join(SAVE_DIR, "model.pt"), # TODO: this has suddenly stopped working. I think the only big change was getting a different version of CUDA to match my version of PyTorch..
-             gene_set=None, additional_data=additional, # TODO: need some way of tracking which additional features are used. Maybe can extract and save with W&B? 
-             dropout=hparams['dropout'], input_dropout=0.5, lr=hparams['lr'], 
-             weight_decay=hparams['weight_decay'], batch_size=hparams['batch_size'], epochs=hparams['epochs'], 
-             verbose=hparams['verbose'], early_stopping=hparams['early_stopping'], 
-             train_inds=hparams['train_set_indices'], test_inds=hparams['evaluation_set_indices'], 
-             random_network=False, fcnn=False, task=None, loss_fn=None, loss_weight=None, aux_loss_weights=[2, 7, 20, 54, 148, 400])
+        x_train = train_dataset.x
+        y_train = train_dataset.y.ravel()
+
+    if MODEL_TYPE == 'rf':
+        model = model_selection.run_rf(x_train, y_train, random_seed=None)
+
+    elif MODEL_TYPE == 'bdt':
+        model = model_selection.run_bdt(x_train, y_train, random_seed=None)
+
+    if MODEL_TYPE == "pnet":
+        logging.info("Train with Pnet.run()")
+        model, train_losses, test_losses, train_dataset, test_dataset = Pnet.run(genetic_data, y, 
+                                                                                save_path=os.path.join(SAVE_DIR, "model.pt"), # TODO: this has suddenly stopped working. I think the only big change was getting a different version of CUDA to match my version of PyTorch..
+                gene_set=None, additional_data=additional, # TODO: need some way of tracking which additional features are used. Maybe can extract and save with W&B? 
+                dropout=hparams['dropout'], input_dropout=0.5, lr=hparams['lr'], 
+                weight_decay=hparams['weight_decay'], batch_size=hparams['batch_size'], epochs=hparams['epochs'], 
+                verbose=hparams['verbose'], early_stopping=hparams['early_stopping'], 
+                train_inds=hparams['train_set_indices'], test_inds=hparams['evaluation_set_indices'], 
+                random_network=False, fcnn=False, task=None, loss_fn=None, loss_weight=None, aux_loss_weights=[2, 7, 20, 54, 148, 400])
     
-    
-    logging.info("Check model convergence by examining the plot of how loss changes over time")
-    plt = report_and_eval.get_loss_plot(train_losses=train_losses, test_losses=test_losses)
-    report_and_eval.savefig(plt, os.path.join(SAVE_DIR, 'loss_over_time'))
-    # instead of doing plt.show() do: # see https://docs.wandb.ai/guides/integrations/scikit
-    wandb.log({"convergence plot": plt})
-    plt.show()
+        logging.info("Check model convergence by examining the plot of how loss changes over time")
+        plt = report_and_eval.get_loss_plot(train_losses=train_losses, test_losses=test_losses)
+        report_and_eval.savefig(plt, os.path.join(SAVE_DIR, 'loss_over_time'))
+        # instead of doing plt.show() do: # see https://docs.wandb.ai/guides/integrations/scikit
+        wandb.log({"convergence plot": plt})
+        plt.show()
 
     logging.info(f"Get the model predictions, performance metrics, feature importances, and save the results to {SAVE_DIR}.")
     report_and_eval.evaluate_interpret_save(model=model, pnet_dataset=train_dataset, model_type=MODEL_TYPE, who="train", save_dir=SAVE_DIR)
-    report_and_eval.evaluate_interpret_save(model=model, pnet_dataset=test_dataset, model_type=MODEL_TYPE, who=EVALUATION_SET, save_dir=SAVE_DIR) # TODO: val is hardcoded
+    report_and_eval.evaluate_interpret_save(model=model, pnet_dataset=test_dataset, model_type=MODEL_TYPE, who=EVALUATION_SET, save_dir=SAVE_DIR)
     
     logging.info("ending wandb run")
     wandb.finish()

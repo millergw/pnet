@@ -314,7 +314,6 @@ def evaluate_interpret_save(model, who, model_type, pnet_dataset=None, x=None, y
     elif model_type in ['rf', 'bdt']:
         logging.info(f"Getting the {model_type} model predictions on the {who} set, performance metrics, and feature importances (if applicable)")
         x = pnet_dataset.x
-        additional= pnet_dataset.additional
         y = pnet_dataset.y.ravel()
         input_df = pnet_dataset.input_df
 
