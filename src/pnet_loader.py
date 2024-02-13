@@ -172,6 +172,7 @@ def to_dataloader(train_dataset, test_dataset, batch_size):
         generator=g,)
     return train_loader, val_loader
 
+
 def add_collinear(train_dataset, test_dataset, collinear_features):
     if isinstance(collinear_features, list):
         for f in collinear_features:
@@ -183,12 +184,14 @@ def add_collinear(train_dataset, test_dataset, collinear_features):
             train_dataset, test_dataset = replace_collinear(train_dataset, test_dataset, altered_input_col)
     return train_dataset, test_dataset
 
+
 def shuffle_data_labels(dataset):
     print('shuffling {} labels'.format(dataset.target.shape[0]))
     target_copy = dataset.target.copy()
     target_copy[target_copy.columns[0]] = dataset.target.sample(frac=1).reset_index(drop=True).values
     dataset.target = target_copy
     return dataset
+
 
 def replace_collinear(train_dataset, test_dataset, altered_input_col):
     train_dataset.altered_inputs.append(altered_input_col)

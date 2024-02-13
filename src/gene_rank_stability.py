@@ -3,13 +3,11 @@ Copied from jupyter notebook so that it can be executed as a script.
 In this script, we analyse the stability of the layer conductance values from the model on a fixed train and test set. We are interested in how the random initialization of the weights influences the importance scores obtained for the genes.
 
 """
-import Pnet
 import pnet_loader
 import report_and_eval
 import model_selection
 import os
 import pandas as pd
-from sklearn import metrics
 import matplotlib.pyplot as plt
 import wandb
 import pickle
@@ -68,7 +66,7 @@ genetic_data = {'somatic_mut': prostate_mutations,
 logging.info(f"We are using the datasets: {list(genetic_data.keys())}")
 
 logging.info("Defining train/test indices")
-test_inds_f = os.path.join(DATADIR, 'pnet_database/prostate/splits/test_set.csv')
+test_inds_f = os.path.join(DATADIR, f'pnet_database/prostate/splits/{EVAL_SET}_set.csv')
 test_inds = list(pd.read_csv(test_inds_f)['id'])
 train_inds_f = os.path.join(DATADIR, 'pnet_database/prostate/splits/training_set.csv')
 train_inds = list(pd.read_csv(train_inds_f)['id'])
