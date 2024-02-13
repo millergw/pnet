@@ -96,11 +96,11 @@ def main():
     wandb.init(
         # Set the project where this run will be logged
         project="prostate_met_status",
-        group="pnet_somatic_and_germline_exp_001"
+        group="bdt_somatic_and_germline_exp_001"
     )
     SEED = 123
     Pnet.set_random_seeds(SEED, turn_off_cuDNN=False)
-    MODEL_TYPE="pnet"
+    MODEL_TYPE="bdt"
 
     # TODO: eventually, want this overall structure of hyperparameters and function calls
     USE_ONLY_PAIRED = True # TODO: note that only have 943 somatic with IDs mapping to the metadata as done here... but should be able to get all 1011 like in PNET paper
@@ -108,7 +108,7 @@ def main():
     ZERO_IMPUTE_GERMLINE = True
     ZERO_IMPUTE_SOMATIC = False
     EVALUATION_SET = 'test' # validation (NOTE: will also set the file name. TODO: add a check to ensure that it's a real file?)
-    SAVE_DIR = f'../results/{MODEL_TYPE}_eval_set_{EVALUATION_SET}_somatic'
+    SAVE_DIR = f'../results/{MODEL_TYPE}_eval_set_{EVALUATION_SET}_germline'
     report_and_eval.make_dir_if_needed(SAVE_DIR)
 
     logging.debug("Defining paths for somatic data")
@@ -124,7 +124,7 @@ def main():
     id_map_f = os.path.join(GERMLINE_DATADIR, "prostate/germline_somatic_id_map_outer_join.csv") # germline_somatic_id_map_f
     sample_metadata_f = os.path.join(GERMLINE_DATADIR,"prostate/pathogenic_variants_with_clinical_annotation_1341_aug2021_correlation.csv")
 
-    logging.debug("Defining path(s) for the confounder/clincial/additional data") # TODO: confounder work. start here?
+    logging.debug("Defining path(s) for the confounder/clincial/additional data")
     additional_f = sample_metadata_f
 
     somatic_mut = prostate_data_loaders.get_somatic_mutation(somatic_mut_f)
@@ -175,10 +175,10 @@ def main():
 
     DATASETS_TO_USE = ['somatic_amp', 'somatic_del', 'somatic_mut', 'germline_mut']
     genetic_data = {
-                    'somatic_amp': somatic_amp, 
-                    'somatic_del': somatic_del,
-                    'somatic_mut': somatic_mut,
-                    # 'germline_mut': germline_mut,
+                    # 'somatic_amp': somatic_amp, 
+                    # 'somatic_del': somatic_del,
+                    # 'somatic_mut': somatic_mut,
+                    'germline_mut': germline_mut,
                    }
 
     genetic_data = {key: genetic_data[key] for key in DATASETS_TO_USE if key in genetic_data}
