@@ -309,6 +309,14 @@ def evaluate_interpret_save(model, who, model_type, pnet_dataset=None, x=None, y
         y_preds, y_probas = get_model_preds_and_probs(model=model, pnet_dataset=pnet_dataset, who=who, model_type=model_type)
         metric_dict = get_performance_metrics(who, y, y_preds, y_probas, save_dir) # TODO: this is universal, and should get pulled out   
         gene_feature_importances, additional_feature_importances, gene_importances, layer_importance_scores = get_pnet_feature_importances(model, who, pnet_dataset, save_dir)
+        importances = {
+            'gene_feature_importances':gene_feature_importances, 
+            'additional_feature_importances':additional_feature_importances, 
+            'gene_importances':gene_importances, 
+            'layer_importance_scores':layer_importance_scores,
+        }
+        for k,v in importances.items():
+            wandb.run.summary[k] = v
         return metric_dict, gene_feature_importances, additional_feature_importances, gene_importances, layer_importance_scores
 
     elif model_type in ['rf', 'bdt']:
@@ -323,6 +331,7 @@ def evaluate_interpret_save(model, who, model_type, pnet_dataset=None, x=None, y
 
         metric_dict = get_performance_metrics(who, y, y_preds, y_probas, save_dir)    
         gene_feature_importances = get_sklearn_feature_importances(model, who=who, input_df=input_df, save_dir=save_dir)
+        wandb.run.summary["gene_feature_importances"] = gene_feature_importances
         return gene_feature_importances
     
     else:
