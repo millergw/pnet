@@ -269,7 +269,7 @@ def get_sklearn_feature_importances(sklearn_model, who, input_df, save_dir=None)
         make_dir_if_needed(save_dir)
         logging.info(f"Saving feature importance information to {save_dir}")
         gene_feature_importances.to_csv(os.path.join(save_dir,f'{who}_gene_feature_importances.csv'))
-        wandb.save(os.path.join(save_dir, f'{who}_gene_feature_importances.csv'), policy="end")
+        wandb.save(f'{who}_gene_feature_importances.csv', base_path=save_dir, policy="end")
     return gene_feature_importances
 
 
@@ -290,10 +290,10 @@ def get_pnet_feature_importances(model, who, pnet_dataset, save_dir = None):
         gene_importances.to_csv(os.path.join(save_dir, f'{who}_gene_importances.csv'))
         for i, layer in enumerate(layer_importance_scores):
             layer.to_csv(os.path.join(save_dir, '{}_layer_{}_importances.csv'.format(who, i)))
-            wandb.save(os.path.join(save_dir, '{}_layer_{}_importances.csv'.format(who, i)), policy="end")
+            wandb.save('{}_layer_{}_importances.csv'.format(who, i), base_path=save_dir, policy="end")
 
-    wandb.save(os.path.join(save_dir, f'{who}_gene_feature_importances.csv'), policy="end")
-    wandb.save(os.path.join(save_dir, f'{who}_additional_feature_importances.csv'), policy="end")
+    wandb.save(f'{who}_gene_feature_importances.csv', base_path=save_dir, policy="end")
+    wandb.save(f'{who}_additional_feature_importances.csv', base_path=save_dir, policy="end")
 
     return gene_feature_importances, additional_feature_importances, gene_importances, layer_importance_scores
 
