@@ -108,7 +108,7 @@ def main():
     ZERO_IMPUTE_GERMLINE = True
     ZERO_IMPUTE_SOMATIC = False
     EVALUATION_SET = 'test' # validation (NOTE: will also set the file name. TODO: add a check to ensure that it's a real file?)
-    SAVE_DIR = f'../results/{MODEL_TYPE}_eval_set_{EVALUATION_SET}_germline'
+    SAVE_DIR = f'../results/{MODEL_TYPE}_eval_set_{EVALUATION_SET}_somatic'
     report_and_eval.make_dir_if_needed(SAVE_DIR)
 
     logging.debug("Defining paths for somatic data")
@@ -175,10 +175,10 @@ def main():
 
     DATASETS_TO_USE = ['somatic_amp', 'somatic_del', 'somatic_mut', 'germline_mut']
     genetic_data = {
-                    # 'somatic_amp': somatic_amp, 
-                    # 'somatic_del': somatic_del,
-                    # 'somatic_mut': somatic_mut,
-                    'germline_mut': germline_mut,
+                    'somatic_amp': somatic_amp, 
+                    'somatic_del': somatic_del,
+                    'somatic_mut': somatic_mut,
+                    # 'germline_mut': germline_mut,
                    }
 
     genetic_data = {key: genetic_data[key] for key in DATASETS_TO_USE if key in genetic_data}
@@ -218,8 +218,6 @@ def main():
     if MODEL_TYPE in ['rf', 'bdt']:
         logging.info("Loading data and making data splits")
         train_dataset, test_dataset = pnet_loader.generate_train_test(genetic_data, additional_data=additional, target=y, train_inds=training_inds, test_inds=evaluation_inds, gene_set=None)
-        before_shape = x_train.shape
-        print(f"x_train.shape before: {x_train.shape}")
         logging.info("Merging the genetic data and additional data (e.g. confounders). Updating the input_df and x attributes.")
         train_dataset.input_df = pd.concat([train_dataset.input_df, train_dataset.additional_data], axis=1)
         train_dataset.x = torch.cat([train_dataset.x, train_dataset.additional], dim=1)
@@ -227,7 +225,6 @@ def main():
         test_dataset.x = torch.cat([test_dataset.x, test_dataset.additional], dim=1)
 
         x_train = train_dataset.x
-        print(f"x_train.shape after: {x_train.shape}")
         y_train = train_dataset.y.ravel()
 
     if MODEL_TYPE == 'rf':
