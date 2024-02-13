@@ -217,7 +217,9 @@ def main():
     wandb.config.update(hparams)
     if MODEL_TYPE in ['rf', 'bdt']:
         logging.info("Loading data and making data splits")
-        train_dataset, test_dataset = pnet_loader.generate_train_test(genetic_data, target=y, train_inds=training_inds, test_inds=evaluation_inds, gene_set=None)
+        train_dataset, test_dataset = pnet_loader.generate_train_test(genetic_data, additional_data=additional, target=y, train_inds=training_inds, test_inds=evaluation_inds, gene_set=None)
+        before_shape = x_train.shape
+        print(f"x_train.shape before: {x_train.shape}")
         logging.info("Merging the genetic data and additional data (e.g. confounders). Updating the input_df and x attributes.")
         train_dataset.input_df = pd.concat([train_dataset.input_df, train_dataset.additional_data], axis=1)
         train_dataset.x = torch.cat([train_dataset.x, train_dataset.additional], dim=1)
@@ -225,6 +227,7 @@ def main():
         test_dataset.x = torch.cat([test_dataset.x, test_dataset.additional], dim=1)
 
         x_train = train_dataset.x
+        print(f"x_train.shape after: {x_train.shape}")
         y_train = train_dataset.y.ravel()
 
     if MODEL_TYPE == 'rf':
