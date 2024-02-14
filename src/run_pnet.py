@@ -96,7 +96,7 @@ def main():
     wandb.init(
         # Set the project where this run will be logged
         project="prostate_met_status",
-        group="bdt_somatic_and_germline_exp_001"
+        group="bdt_somatic_and_germline_exp_002"
     )
     SEED = 123
     Pnet.set_random_seeds(SEED, turn_off_cuDNN=False)
@@ -108,7 +108,7 @@ def main():
     ZERO_IMPUTE_GERMLINE = True
     ZERO_IMPUTE_SOMATIC = False
     EVALUATION_SET = 'test' # validation (NOTE: will also set the file name. TODO: add a check to ensure that it's a real file?)
-    SAVE_DIR = f'../results/{MODEL_TYPE}_eval_set_{EVALUATION_SET}_somatic'
+    SAVE_DIR = f'../results/{MODEL_TYPE}_eval_set_{EVALUATION_SET}_somatic_and_germline'
     report_and_eval.make_dir_if_needed(SAVE_DIR)
 
     logging.debug("Defining paths for somatic data")
@@ -178,7 +178,7 @@ def main():
                     'somatic_amp': somatic_amp, 
                     'somatic_del': somatic_del,
                     'somatic_mut': somatic_mut,
-                    # 'germline_mut': germline_mut,
+                    'germline_mut': germline_mut,
                    }
 
     genetic_data = {key: genetic_data[key] for key in DATASETS_TO_USE if key in genetic_data}
@@ -226,12 +226,23 @@ def main():
 
         x_train = train_dataset.x
         y_train = train_dataset.y.ravel()
+        x_test = test_dataset.x
+        y_test = test_dataset.y.ravel()
 
     if MODEL_TYPE == 'rf':
         model = model_selection.run_rf(x_train, y_train, random_seed=None)
 
     elif MODEL_TYPE == 'bdt':
         model = model_selection.run_bdt(x_train, y_train, random_seed=None)
+        # TODO: start here 2/15. Unsure if test_dataset.input or test_dataset.x is appropriate for the get_deviance function.
+        logging.info(f"Making deviance plots to check convergence/overfitting for model")
+        train_scores, test_scores = report_and_eval.get_deviance(model, x_test, y_test)
+        plt = report_and_eval.get_loss_plot(train_losses=train_scores, test_losses=test_scores,
+                                            train_label="Train deviance", test_label=f"{EVALUATION_SET} deviance",
+                                            title="Model Deviance", ylabel="Deviance (MSE)", xlabel="Boosting iterations")
+        report_and_eval.savefig(plt, os.path.join(SAVE_DIR, f'deviance_per_boosting_iteration'))
+        wandb.log({"convergence plot": plt})
+        plt.show()
 
     if MODEL_TYPE == "pnet":
         logging.info("Train with Pnet.run()")
