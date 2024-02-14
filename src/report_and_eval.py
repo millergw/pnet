@@ -25,7 +25,8 @@ from sklearn.metrics import (
     precision_score,
     recall_score,
     balanced_accuracy_score,
-    accuracy_score
+    accuracy_score,
+    mean_squared_error,
 )
 import torch
 
@@ -137,7 +138,8 @@ def report_df_info_with_names(df_dict, n=5):
 #################
 
 def get_loss_plot(train_losses, test_losses, 
-                  train_label="Train loss", test_label="Validation loss"):
+                  train_label="Train loss", test_label="Validation loss",
+                  title="Model Loss", ylabel="Loss", xlabel="Epochs"):
     logging.info("Making a loss plot over time")
     # Sample data
     epochs = range(1, len(train_losses)+1)
@@ -147,9 +149,9 @@ def get_loss_plot(train_losses, test_losses,
     plt.plot(epochs, test_losses, label=test_label)
 
     # Adding labels and title
-    plt.xlabel('Epochs')
-    plt.ylabel('Loss')
-    plt.title('Model Loss')
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    plt.title(title)
 
     # Adding a legend
     plt.legend()
@@ -342,3 +344,14 @@ def evaluate_interpret_save(model, who, model_type, pnet_dataset=None, x=None, y
     else:
         logging.error(f"We haven't implemented for the model type you specified, which was {model_type}")
     return
+
+
+def get_deviance(clf, x_test, y_test):
+    """
+    TODO: check functionality for RF. Works for BDT. 
+    Thinking about the "Plot training deviance" section from https://scikit-learn.org/stable/auto_examples/ensemble/plot_gradient_boosting_regression.html#sphx-glr-auto-examples-ensemble-plot-gradient-boosting-regression-py
+    """
+    test_score = np.zeros((clf.n_estimators_,), dtype=np.float64)
+    for i, y_pred in enumerate(clf.staged_predict(x_test)):
+        test_score[i] = mean_squared_error(y_test, y_pred)
+    return clf.train_score_, test_score

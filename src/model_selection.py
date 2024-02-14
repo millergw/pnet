@@ -9,7 +9,6 @@ Train/test indices, data, y
 Outputs:
 trained model, train and test datasets (the X component??? P-NET returns a P-NET data object...)
 """
-import os
 import Pnet
 from sklearn import metrics
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
@@ -57,8 +56,8 @@ def run_rf(x_train, y_train, max_depth=None, random_seed=None):
     return model
 
 
-def run_bdt(x_train, y_train, max_depth=3, random_seed=None):
+def run_bdt(x_train, y_train, max_depth=3, n_estimators=100, lr=0.1, random_seed=None):
     logging.info("Running Boosted Decision Tree (BDT) model")
-    model = GradientBoostingClassifier(n_estimators=100, learning_rate=0.1, max_depth=max_depth, random_state=random_seed)
+    model = GradientBoostingClassifier(n_estimators=n_estimators, learning_rate=lr, max_depth=max_depth, random_state=random_seed)
     model.fit(x_train, y_train)
     return model
