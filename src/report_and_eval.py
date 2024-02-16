@@ -336,10 +336,11 @@ def evaluate_interpret_save(model, who, model_type, pnet_dataset=None, x=None, y
         metric_dict = get_performance_metrics(who, y, y_preds, y_probas, save_dir)    
         gene_feature_importances = get_sklearn_feature_importances(model, who=who, input_df=input_df, save_dir=save_dir)
         # TODO: trying different ways of saving the feature importances (as a dict, a file, and as two separate lists)
-        wandb.run.summary['gene_feature_importances'] = gene_feature_importances.to_dict()
+        save_as_file_to_wandb(gene_feature_importances, f'{who}_gene_feature_importances.csv')
+        gene_feature_importances= gene_feature_importances.to_dict()
+        wandb.run.summary['gene_feature_importances'] = gene_feature_importances
         wandb.run.summary['gene_feature_importances_names'] = list(gene_feature_importances.keys())
         wandb.run.summary['gene_feature_importances_values'] = list(gene_feature_importances.values())
-        save_as_file_to_wandb(gene_feature_importances, f'{who}_gene_feature_importances.csv')
         return gene_feature_importances
     
     else:
