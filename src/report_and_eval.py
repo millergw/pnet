@@ -292,10 +292,6 @@ def get_pnet_feature_importances(model, who, pnet_dataset, save_dir = None):
         gene_importances.to_csv(os.path.join(save_dir, f'{who}_gene_importances.csv'))
         for i, layer in enumerate(layer_importance_scores):
             layer.to_csv(os.path.join(save_dir, '{}_layer_{}_importances.csv'.format(who, i)))
-            # wandb.save('{}_layer_{}_importances.csv'.format(who, i), base_path=save_dir, policy="end")
-
-    # wandb.save(f'{who}_gene_feature_importances.csv', base_path=save_dir, policy="end")
-    # wandb.save(f'{who}_additional_feature_importances.csv', base_path=save_dir, policy="end")
 
     return gene_feature_importances, additional_feature_importances, gene_importances, layer_importance_scores
 
@@ -322,8 +318,9 @@ def evaluate_interpret_save(model, who, model_type, pnet_dataset=None, x=None, y
             'gene_importances':gene_importances, 
             'layer_importance_scores':layer_importance_scores,
         }
-        for k,v in importances.items():
-            wandb.run.summary[k] = v.to_dict() # TODO: haven't tested and I expect it might not work for everything, some some might be a list?
+        for name,dat in importances.items():
+            save_as_file_to_wandb(dat, f'{who}_{name}.csv')
+            # wandb.run.summary[k] = v.to_dict() # TODO: haven't tested and I expect it might not work for everything, some some might be a list?
         return metric_dict, gene_feature_importances, additional_feature_importances, gene_importances, layer_importance_scores
 
     elif model_type in ['rf', 'bdt']:
@@ -338,11 +335,25 @@ def evaluate_interpret_save(model, who, model_type, pnet_dataset=None, x=None, y
 
         metric_dict = get_performance_metrics(who, y, y_preds, y_probas, save_dir)    
         gene_feature_importances = get_sklearn_feature_importances(model, who=who, input_df=input_df, save_dir=save_dir)
-        wandb.run.summary["gene_feature_importances"] = gene_feature_importances.to_dict()
+        # TODO: trying different ways of saving the feature importances (as a dict, a file, and as two separate lists)
+        wandb.run.summary['gene_feature_importances'] = gene_feature_importances.to_dict()
+        wandb.run.summary['gene_feature_importances_names'] = gene_feature_importances.keys()
+        wandb.run.summary['gene_feature_importances_values'] = gene_feature_importances.values()
+        save_as_file_to_wandb(gene_feature_importances, f'{who}_gene_feature_importances.csv')
         return gene_feature_importances
     
     else:
         logging.error(f"We haven't implemented for the model type you specified, which was {model_type}")
+    return
+
+
+def save_as_file_to_wandb(data, filename, policy='now', delete_local=True):
+    logging.info("Temporarily save down to {filename}, upload to WandB.")
+    data.to_csv(filename)
+    wandb.save(filename, policy=policy)
+    if delete_local:
+        logging.info(f"Deleting the temporary file at {filename}")
+        os.remove(filename)
     return
 
 

@@ -119,6 +119,7 @@ for r in range(20):
         logging.info(f"Making loss plots to check convergence for model {r}")
         plt = report_and_eval.get_loss_plot(train_losses=train_scores, test_losses=test_scores, test_label=f"{EVAL_SET} loss")
         report_and_eval.savefig(plt, os.path.join(SAVEDIR, f'loss_over_time_run_{r}'))
+        wandb.log({"convergence plot": plt})
         plt.show()
     elif MODEL_TYPE == 'rf':
         # TODO: 1/10/24. do I need to somehow take the "additional" data into account? Can I just merge this into x_train to create one larger input?
@@ -129,12 +130,13 @@ for r in range(20):
         # x_train, x_test, y_train, y_test =  report_and_eval.get_train_test_manual_split(x, y, train_inds, test_inds)
         model = model_selection.run_bdt(x_train, y_train, random_seed=None)
 
-        # TODO: get train/test deviances, which are functionally similar to NN loss over epochs
         logging.info(f"Making deviance plots to check convergence/overfitting for model {r}")
+        train_scores, test_scores = report_and_eval.get_deviance(model, x_test, y_test)
         plt = report_and_eval.get_loss_plot(train_losses=train_scores, test_losses=test_scores,
                                             train_label="Train deviance", test_label=f"{EVAL_SET} deviance",
                                             title="Model Deviance", ylabel="Deviance (MSE)", xlabel="Boosting iterations")
-        report_and_eval.savefig(plt, os.path.join(SAVEDIR, f'deviance_per_tree_run_{r}'))
+        report_and_eval.savefig(plt, os.path.join(SAVEDIR, f'deviance_per_boosting_iteration_run_{r}'))
+        wandb.log({"convergence plot": plt})
         plt.show()
 
     if MODEL_TYPE in ['rf', 'bdt']:

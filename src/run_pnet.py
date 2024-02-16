@@ -96,7 +96,7 @@ def main():
     wandb.init(
         # Set the project where this run will be logged
         project="prostate_met_status",
-        group="bdt_somatic_and_germline_exp_002"
+        group="bdt_somatic_and_germline_exp_003"
     )
     SEED = 123
     Pnet.set_random_seeds(SEED, turn_off_cuDNN=False)
@@ -107,8 +107,8 @@ def main():
     CONVERT_IDS_TO = "somatic"
     ZERO_IMPUTE_GERMLINE = True
     ZERO_IMPUTE_SOMATIC = False
-    EVALUATION_SET = 'test' # validation (NOTE: will also set the file name. TODO: add a check to ensure that it's a real file?)
-    SAVE_DIR = f'../results/{MODEL_TYPE}_eval_set_{EVALUATION_SET}_somatic_and_germline'
+    EVALUATION_SET = 'validation' # validation or test (NOTE: will also set the file name. TODO: add a check to ensure that it's a real file?)
+    SAVE_DIR = f'../results/{MODEL_TYPE}_eval_set_{EVALUATION_SET}_germline'
     report_and_eval.make_dir_if_needed(SAVE_DIR)
 
     logging.debug("Defining paths for somatic data")
@@ -175,9 +175,9 @@ def main():
 
     DATASETS_TO_USE = ['somatic_amp', 'somatic_del', 'somatic_mut', 'germline_mut']
     genetic_data = {
-                    'somatic_amp': somatic_amp, 
-                    'somatic_del': somatic_del,
-                    'somatic_mut': somatic_mut,
+                    # 'somatic_amp': somatic_amp, 
+                    # 'somatic_del': somatic_del,
+                    # 'somatic_mut': somatic_mut,
                     'germline_mut': germline_mut,
                    }
 
