@@ -23,7 +23,7 @@ import pandas as pd
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
-
+import argparse
 
 # Importing packages related to model performance
 from sklearn.metrics import confusion_matrix # expects true_labels, predicted_labels
@@ -72,6 +72,27 @@ mutations_dict = {"3'Flank": 'Silent',
                   }
 
 
+def parse_arguments():
+    parser = argparse.ArgumentParser(description="Description of your script")
+    parser.add_argument("--datasets", nargs="+", default=["somatic_amp", "somatic_del", "somatic_mut", "germline_mut"],
+                        help="List of datasets to use")
+    parser.add_argument("--evaluation_set", default="validation", choices=["validation", "test"],
+                        help="Evaluation set (validation or test)")
+    parser.add_argument("--model_type", default="bdt", choices=['bdt', 'rf', 'pnet'],
+                        help="Type of model")
+    parser.add_argument("--wandb_group", default="",
+                        help="Wandb group name")
+    parser.add_argument("--seed", type=int, default=123, help="Seed value")
+    parser.add_argument("--use_only_paired", action="store_true", help="Use only paired")
+    parser.add_argument("--convert_ids_to", default="somatic", help="Convert IDs to")
+    parser.add_argument("--zero_impute_germline", action="store_true", help="Zero impute germline")
+    parser.add_argument("--zero_impute_somatic", action="store_true", help="Zero impute somatic")
+    parser.add_argument("--somatic_datadir", default="../../pnet_germline/data/pnet_database/prostate/processed", help="Somatic data directory")
+    parser.add_argument("--germline_datadir", default="../../pnet_germline/data/", help="Germline data directory")
+    parser.add_argument("--data_split_dir", default="../../pnet_germline/data/pnet_database/prostate/splits", help="Directory with data split files")
+    
+    return parser.parse_args()
+
 def main():
     """# Load each of your data modalities of interest.
     Format should be samples x genes. Set the sample IDs as the index.
@@ -92,40 +113,52 @@ def main():
     NOTE: the PNET loader will automatically restrict the input data modalities to overlapping samples and overlapping genes. 
     This means we will need to be carefull with our input germline dataset if we want to keep all the somatic data.
     """
+
+    logging.debug("Parsing command-line arguments")
+    args = parse_arguments()
+    
+    WANDB_GROUP = args.wandb_group
     wandb.login()
     wandb.init(
         # Set the project where this run will be logged
         project="prostate_met_status",
-        group="bdt_somatic_and_germline_exp_003"
+        group=WANDB_GROUP
     )
-    SEED = 123
-    Pnet.set_random_seeds(SEED, turn_off_cuDNN=False)
-    MODEL_TYPE="bdt"
+    wandb_run_id = wandb.run.id
 
-    # TODO: eventually, want this overall structure of hyperparameters and function calls
-    USE_ONLY_PAIRED = True # TODO: note that only have 943 somatic with IDs mapping to the metadata as done here... but should be able to get all 1011 like in PNET paper
-    CONVERT_IDS_TO = "somatic"
-    ZERO_IMPUTE_GERMLINE = True
-    ZERO_IMPUTE_SOMATIC = False
-    EVALUATION_SET = 'validation' # validation or test (NOTE: will also set the file name. TODO: add a check to ensure that it's a real file?)
-    SAVE_DIR = f'../results/{MODEL_TYPE}_eval_set_{EVALUATION_SET}_germline'
-    report_and_eval.make_dir_if_needed(SAVE_DIR)
+    # Access the values
+    DATASETS_TO_USE = args.datasets
+    EVALUATION_SET = args.evaluation_set
+    MODEL_TYPE = args.model_type
+    SEED = args.seed
+    MODEL_TYPE = args.model_type
+    USE_ONLY_PAIRED = args.use_only_paired # TODO: note that only have 943 somatic with IDs mapping to the metadata as done here... but should be able to get all 1011 like in PNET paper
+    CONVERT_IDS_TO = args.convert_ids_to
+    ZERO_IMPUTE_GERMLINE = args.zero_impute_germline
+    ZERO_IMPUTE_SOMATIC = args.zero_impute_somatic
+    EVALUATION_SET = args.evaluation_set
+    SOMATIC_DATADIR = args.somatic_datadir
+    GERMLINE_DATADIR = args.germline_datadir
+    SPLITS_DIR = args.data_split_dir
 
-    logging.debug("Defining paths for somatic data")
-    SOMATIC_DATADIR = "../../pnet_germline/data/pnet_database/prostate/processed"
+    # TODO: update. Construct SAVE_DIR using the parameters
+    SAVE_DIR = f"../results/{MODEL_TYPE}_eval_set_{EVALUATION_SET}_variantQCed_wandbID_{wandb.run.id}"
+    if WANDB_GROUP != "":
+        SAVE_DIR = f"../results/{WANDB_GROUP}/{MODEL_TYPE}_eval_set_{EVALUATION_SET}_variantQCed_wandbID_{wandb.run.id}"
+
+    logging.debug("Define file paths based on directories")
     somatic_mut_f = os.path.join(SOMATIC_DATADIR, "P1000_final_analysis_set_cross_important_only.csv")
     somatic_cnv_f = os.path.join(SOMATIC_DATADIR, "P1000_data_CNA_paper.csv")
-    
-    logging.debug("Defining paths for germline data")
-    GERMLINE_DATADIR = "../../pnet_germline/data/"
-    germline_vars_f = os.path.join(GERMLINE_DATADIR, "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_pathogenic_vars_only.txt")
-
-    logging.debug("Defining paths for the sample metadata")
-    id_map_f = os.path.join(GERMLINE_DATADIR, "prostate/germline_somatic_id_map_outer_join.csv") # germline_somatic_id_map_f
-    sample_metadata_f = os.path.join(GERMLINE_DATADIR,"prostate/pathogenic_variants_with_clinical_annotation_1341_aug2021_correlation.csv")
-
+    germline_vars_f = os.path.join(GERMLINE_DATADIR, "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_variant_QC_passed_pathogenic_vars_only.txt")
+    id_map_f = os.path.join(GERMLINE_DATADIR, "prostate/germline_somatic_id_map_outer_join.csv")
+    sample_metadata_f = os.path.join(GERMLINE_DATADIR, "prostate/pathogenic_variants_with_clinical_annotation_1341_aug2021_correlation.csv")
     logging.debug("Defining path(s) for the confounder/clincial/additional data")
     additional_f = sample_metadata_f
+    TRAIN_SET_INDS_F = os.path.join(SPLITS_DIR, "training_set.csv")
+    EVALUATION_SET_INDS_F = os.path.join(SPLITS_DIR, f"{EVALUATION_SET}_set.csv")
+    
+    Pnet.set_random_seeds(SEED, turn_off_cuDNN=False)
+    report_and_eval.make_dir_if_needed(SAVE_DIR)
 
     somatic_mut = prostate_data_loaders.get_somatic_mutation(somatic_mut_f)
     somatic_amp, somatic_del = prostate_data_loaders.get_somatic_amp_and_del(somatic_cnv_f)
@@ -140,13 +173,13 @@ def main():
                                convert_ids_to=CONVERT_IDS_TO) # want to run stuff if change_to_somatic_ids or paired
     if USE_ONLY_PAIRED: # want to run stuff if paired; note that this will only work correctly if the IDs are correctly harmonized
         logging.info("Restrict to overlapping samples (the indices)")
-        somatic_mut, somatic_amp, somatic_del, germline_mut, additional, y = data_manipulation.restrict_to_overlapping_indices(somatic_mut, somatic_amp, somatic_del, 
-                                                                                                 germline_mut, 
-                                                                                                 additional,
-                                                                                                 y)
+        somatic_mut, somatic_amp, somatic_del, germline_mut, additional, y = data_manipulation.restrict_to_overlapping_indices(
+            somatic_mut, somatic_amp, somatic_del, 
+            germline_mut, 
+            additional,
+            y)
 
     # zero impute dataset columns (genes) as necessary (maybe have a reference dataset vs all others? Unsure of best way to parameterize this function)
-    # NOTE: we only do the imputation on the genetic datasets for now, not the additional data (clincial, confounders, etc)
     [germline_mut] = prostate_data_loaders.zero_impute_germline_datasets(germline_datasets=[germline_mut], 
                                   somatic_datasets=[somatic_mut, somatic_amp, somatic_del], 
                                   zero_impute_germline=ZERO_IMPUTE_GERMLINE) 
@@ -168,16 +201,10 @@ def main():
     logging.info("Finished preparing data format. Now left with: making train/val/test splits, setting up model, running model, evaluate model")
 
     ####------ below here, working on slowly getting reworking the code so we fit into the above function calls
-    logging.info("# Generate the PNET loader")
-    PNET_SPLITS_DIR = "../../pnet_germline/data/pnet_database/prostate/splits"
-    TRAIN_SET_INDS_F = os.path.join(PNET_SPLITS_DIR, "training_set.csv")
-    EVALUATION_SET_INDS_F = os.path.join(PNET_SPLITS_DIR, f"{EVALUATION_SET}_set.csv")
-
-    DATASETS_TO_USE = ['somatic_amp', 'somatic_del', 'somatic_mut', 'germline_mut']
     genetic_data = {
-                    # 'somatic_amp': somatic_amp, 
-                    # 'somatic_del': somatic_del,
-                    # 'somatic_mut': somatic_mut,
+                    'somatic_amp': somatic_amp, 
+                    'somatic_del': somatic_del,
+                    'somatic_mut': somatic_mut,
                     'germline_mut': germline_mut,
                    }
 
@@ -268,7 +295,7 @@ def main():
     
     logging.info("ending wandb run")
     wandb.finish()
-    return
+    return wandb_run_id
 
 
 if __name__=="__main__":

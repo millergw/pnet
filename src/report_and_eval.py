@@ -267,10 +267,14 @@ def get_sklearn_model_preds_and_probs(sklearn_model, x):
 def get_sklearn_feature_importances(sklearn_model, who, input_df, save_dir=None):
     importances = sklearn_model.feature_importances_
     gene_feature_importances = pd.Series(importances, index=input_df.columns) # TODO: check if this is the correct index
+    # TODO: edit so that it's a better format when saved down
+    logging.debug("Editing DF format so that we just have two columns to save down. This makes the read-in format much nicer.")
+    gene_feature_importances = gene_feature_importances.reset_index()
+    gene_feature_importances.columns = ['feature', 'importance score']
     if save_dir is not None:
         make_dir_if_needed(save_dir)
         logging.info(f"Saving feature importance information to {save_dir}")
-        gene_feature_importances.to_csv(os.path.join(save_dir,f'{who}_gene_feature_importances.csv'))
+        gene_feature_importances.to_csv(os.path.join(save_dir,f'{who}_gene_feature_importances.csv'), index=False)
         # wandb.save(f'{who}_gene_feature_importances.csv', base_path=save_dir, policy="end") # TODO: problem. save_dir is above current dir, and this isn't allowed.
     return gene_feature_importances
 
@@ -336,11 +340,13 @@ def evaluate_interpret_save(model, who, model_type, pnet_dataset=None, x=None, y
         metric_dict = get_performance_metrics(who, y, y_preds, y_probas, save_dir)    
         gene_feature_importances = get_sklearn_feature_importances(model, who=who, input_df=input_df, save_dir=save_dir)
         # TODO: trying different ways of saving the feature importances (as a dict, a file, and as two separate lists)
-        save_as_file_to_wandb(gene_feature_importances, f'{who}_gene_feature_importances.csv')
-        gene_feature_importances= gene_feature_importances.to_dict()
-        wandb.run.summary['gene_feature_importances'] = gene_feature_importances
-        wandb.run.summary['gene_feature_importances_names'] = list(gene_feature_importances.keys())
-        wandb.run.summary['gene_feature_importances_values'] = list(gene_feature_importances.values())
+        # save_as_file_to_wandb(gene_feature_importances, f'{who}_gene_feature_importances.csv')
+        # gene_feature_importances= gene_feature_importances.to_dict()
+        # print(f"gene_feature_importances: {gene_feature_importances}")
+        # TODO: why isn't this working with the validation set? Works fine with the training set
+        # wandb.run.summary['gene_feature_importances'] = gene_feature_importances 
+        # wandb.run.summary['gene_feature_importances_names'] = list(gene_feature_importances.keys())
+        # wandb.run.summary['gene_feature_importances_values'] = list(gene_feature_importances.values())
         return gene_feature_importances
     
     else:
