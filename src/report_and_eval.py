@@ -322,8 +322,8 @@ def evaluate_interpret_save(model, who, model_type, pnet_dataset=None, x=None, y
             'gene_importances':gene_importances, 
             'layer_importance_scores':layer_importance_scores,
         }
-        for name,dat in importances.items():
-            save_as_file_to_wandb(dat, f'{who}_{name}.csv')
+        # for name,dat in importances.items():
+        #     save_as_file_to_wandb(dat, f'{who}_{name}.csv')
             # wandb.run.summary[k] = v.to_dict() # TODO: haven't tested and I expect it might not work for everything, some some might be a list?
         return metric_dict, gene_feature_importances, additional_feature_importances, gene_importances, layer_importance_scores
 
@@ -355,7 +355,10 @@ def evaluate_interpret_save(model, who, model_type, pnet_dataset=None, x=None, y
 
 
 def save_as_file_to_wandb(data, filename, policy='now', delete_local=True):
-    logging.info("Temporarily save down to {filename}, upload to WandB.")
+    logging.info(f"Temporarily save down to {filename}, upload to WandB.")
+    if not isinstance(data, pd.DataFrame):
+        logging.warn(f"Expected a DF as input; converting {type(data)} object to pandas DF before saving.")
+        data = pd.DataFrame(data)
     data.to_csv(filename)
     wandb.save(filename, policy=policy)
     if delete_local:
