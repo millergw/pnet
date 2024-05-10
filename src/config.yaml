@@ -1,0 +1,33 @@
+# config for running model on zero-imputed germline, paired samples only
+
+# the datasets variable dictates which datasets from genetic data get included in the analysis. Name the datasets that you want to include in the model run
+datasets: ["somatic_amp", "somatic_del", "somatic_mut"]
+# datasets: ["somatic_amp", "somatic_del", "somatic_mut", "germline_rare_lof", "germline_rare_missense", "germline_common_lof", "germline_common_missense"]
+evaluation_set: "validation"
+model_type: "pnet"
+wandb_group: "pnet_somatic_and_germline_exp_003"
+wandb_project: "prostate_met_status"
+seed: 123
+input_data_wandb_id: "go4gppgk"
+input_data_dir: "../../pnet_germline/processed/wandb-group-data_prep_germline_tier12_and_somatic/converted-IDs-to-somatic_imputed-germline_True_imputed-somatic_False_paired-samples-True/wandb-run-id-go4gppgk"
+
+# defining input data
+genetic_data:
+    somatic_mut:
+        filename: "somatic_mut.csv"
+    somatic_amp:
+        filename: "somatic_amp.csv"
+    somatic_del:
+        filename: "somatic_del.csv"
+    germline_rare_lof: 
+        filename: "germline_rare_high-impact.csv"
+    germline_rare_missense: 
+        filename: "germline_rare_moderate-impact.csv"
+    germline_common_lof: 
+        filename: "germline_common_high-impact.csv"
+    germline_common_missense: 
+        filename: "germline_common_moderate-impact.csv"
+confounder_data:
+    filename: "additional.csv"
+target:
+    filename: "y.csv"

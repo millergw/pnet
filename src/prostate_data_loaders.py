@@ -233,42 +233,6 @@ def format_germline_mutation_data(df):
     return germline_mut
 
 
-def format_germline_mutation_data_old(df, change_to_somatic_ids=True, paired=True):
-    """
-    Args:
-    - df: samples x variant and features (quasi VCF file format)
-    - change_to_somatic_ids: change from the germline IDs to the somatic IDs (NOTE: might get NAs!)
-    - paired: if True, we only keep germline samples were we also have the paired somatic sample
-    """
-    logging.info("Extracting the variant metadata DF")
-    variant_metadata = vcf_manipulation.get_variant_metadata_from_VCF(df)
-
-    logging.info("Make the binary variant-level genotypes matrix")
-    binary_genotypes = vcf_manipulation.make_binary_genotype_mat_from_VCF(df)
-
-    logging.info("Make the binary gene-level genotypes matrix")
-    gene_level_genotype_matrix =  vcf_manipulation.convert_binary_var_mat_to_gene_level_mat(binary_genotypes, 
-                                                                variant_metadata, 
-                                                                binary_output = True)
-
-    if change_to_somatic_ids or paired:
-        logging.info("Changing the sample IDs to match those used with the somatic data")
-        # create a dict for mapping 
-        germID_to_somaticID = dict(zip(germline_somatic_id_map.vcf_germline_id, germline_somatic_id_map.Tumor_Sample_Barcode))
-        gene_level_genotype_matrix.columns = pd.Series(gene_level_genotype_matrix.columns.tolist()).map(germID_to_somaticID).tolist()
-
-    logging.debug("transposing to get genes x samples")
-    germline_mut = gene_level_genotype_matrix.T
-
-    if paired:
-        logging.info("Removing any rows whose index is NA: we don't currently have the matched germline for this sample")
-        logging.info(f"shape before: {germline_mut.shape}")
-        germline_mut = germline_mut.reset_index().dropna(subset=["index"]).set_index("index")
-        logging.info(f"shape after: {germline_mut.shape}")
-
-    return germline_mut
-
-
 def harmonize_prostate_ids(datasets_w_germline_ids, datasets_w_somatic_ids, convert_ids_to = "somatic"): # TODO: how should I handle IDs that can't be converted? Right now, I just replace with NAs and warn. But I think I should drop NA rows.
     # TODO: edit third parameter so that it takes either "somatic", "germline", or None
     """

@@ -433,7 +433,7 @@ def convert_binary_var_mat_to_gene_level_mat(binary_genotypes, variant_metadata,
     gene_burden_mat = pd.DataFrame(gene_burden_rows, index=genes)
     
     if binary_output:
-        logging.info("4. Binarizing the matrix (anything !=0. gets set to 1)")
+        logging.info("4. Binarizing the gene burden matrix (anything !=0. gets set to 1)")
         gene_burden_mat = gene_burden_mat.applymap(binarize_burden_mat)
         assert not (gene_burden_mat > 1).any().any(), "At least one value in the supposedly binarized gene_burden_mat is greater than 1"
 

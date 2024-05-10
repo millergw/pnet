@@ -136,7 +136,6 @@ def main():
     CONVERT_IDS_TO = args.convert_ids_to
     ZERO_IMPUTE_GERMLINE = args.zero_impute_germline
     ZERO_IMPUTE_SOMATIC = args.zero_impute_somatic
-    EVALUATION_SET = args.evaluation_set
     SOMATIC_DATADIR = args.somatic_datadir
     GERMLINE_DATADIR = args.germline_datadir
     SPLITS_DIR = args.data_split_dir
