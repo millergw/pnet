@@ -158,7 +158,7 @@ def main():
 
     # zero impute dataset columns (genes) as necessary (maybe have a reference dataset vs all others? Unsure of best way to parameterize this function)
     logging.info("Zero-imputing columns (genes) as defined by user (impute germline: {}, impute somatic: {})".format(ZERO_IMPUTE_GERMLINE, ZERO_IMPUTE_SOMATIC))
-    germline_datasets = prostate_data_loaders.zero_impute_germline_datasets(germline_datasets=[germline_rare_lof, germline_rare_missense, germline_common_lof, germline_common_missense], 
+    germline_rare_lof, germline_rare_missense, germline_common_lof, germline_common_missense = prostate_data_loaders.zero_impute_germline_datasets(germline_datasets=[germline_rare_lof, germline_rare_missense, germline_common_lof, germline_common_missense], 
                                   somatic_datasets=[somatic_mut, somatic_amp, somatic_del], 
                                   zero_impute_germline=ZERO_IMPUTE_GERMLINE) 
 
@@ -180,17 +180,6 @@ def main():
 
     if SAVE_DIR != '':
         logging.info("Saving each df to {}".format(SAVE_DIR))
-
-        # somatic_mut.to_csv(os.path.join(SAVE_DIR, "somatic_mut.csv"))
-        # somatic_amp.to_csv(os.path.join(SAVE_DIR, "somatic_amp.csv"))
-        # somatic_del.to_csv(os.path.join(SAVE_DIR, "somatic_del.csv"))
-        # germline_rare_lof.to_csv(os.path.join(SAVE_DIR, "germline_rare_high-impact.txt"), sep='\t')
-        # germline_rare_missense.to_csv(os.path.join(SAVE_DIR, "germline_rare_moderate-impact.txt"), sep='\t')
-        # germline_common_lof.to_csv(os.path.join(SAVE_DIR, "germline_common_high-impact.txt"), sep='\t')
-        # germline_common_missense.to_csv(os.path.join(SAVE_DIR, "germline_common_moderate-impact.txt"), sep='\t')
-        # additional.to_csv(os.path.join(SAVE_DIR, "additional.csv"))
-        # y.to_csv(os.path.join(SAVE_DIR, "y.csv"))
-
         for name, df in df_dict.items():
             save_name = os.path.join(SAVE_DIR, name+'.csv')
             df.to_csv(save_name, index=True)
