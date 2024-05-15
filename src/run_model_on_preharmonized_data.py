@@ -27,12 +27,18 @@ logging.basicConfig(
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+# adapted from https://github.com/wandb/wandb/issues/2939 to help W&B sweep
+class ParseAction(configargparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        values = list(map(str, values.split()))
+        setattr(namespace, self.dest, values)
+
 def parse_arguments():
     parser = configargparse.ArgumentParser(description="Description of your script")
     parser.add("--config_f", type=str, required=False, is_config_file=True, help="Path to a config file")
     parser.add("--data_config_f", type=str, required=True, is_config_file=False, help="Path to a config file")
-    parser.add("--datasets", nargs="+", default=["somatic_amp", "somatic_del", "somatic_mut"],
-                        help="List of datasets to use")
+    parser.add("--datasets", default=["somatic_amp", "somatic_del", "somatic_mut"],
+                        help="List of datasets to use", action=ParseAction) # NOTE: I don't use nargs = "+" because it doesn't work with wandb sweep
     parser.add("--evaluation_set", default="validation", choices=["validation", "test"],
                         help="Evaluation set (validation or test)")
     parser.add("--model_type", default="bdt", choices=['bdt', 'rf', 'pnet'],
@@ -103,6 +109,8 @@ def main():
 
     # TODO: need to figure out how to read in the dictionary style items (all my data)
     config = read_config(args.data_config_f)
+
+    logging.debug("datasets: ", args.datasets, type(args.datasets))
 
     logging.info("Loading data from directory {}".format(args.input_data_dir))
     input_data_wandb_id = args.input_data_wandb_id

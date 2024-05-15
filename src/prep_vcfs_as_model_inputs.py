@@ -1,6 +1,6 @@
 # Script to prepare each data modality to be directly loaded into P-NET
 # Author: Gwen Miller <gwen_miller@g.harvard.edu>
-
+# TODO: Goal is to edit such that easy to loop over as many different genetic data modalities as we need (e.g. if we have 16 different germline combos, don't want to have to write everything out manually...)
 import os
 
 # Gwen's scripts
@@ -138,11 +138,6 @@ def main():
     # confounders
     additional = prostate_data_loaders.get_additional_data(additional_f, id_map_f, cols_to_include = ['PCA1', 'PCA2', 'PCA3', 'PCA4', 'PCA5', 'PCA6', 'PCA7', 'PCA8', 'PCA9', 'PCA10'])
 
-    # TODO: dangerous to do this bc Python doesn't do this with pointers, so if update one of the elements in the list somatic_datasets, the list itself WON'T change
-    # somatic_datasets = [somatic_mut, somatic_amp, somatic_del]
-    # germline_datasets = [germline_rare_lof, germline_rare_missense, germline_common_lof, germline_common_missense]
-    # datasets_with_somatic_ids = [somatic_mut, somatic_amp, somatic_del] + [additional, y] 
-
     if USE_ONLY_PAIRED or CONVERT_IDS_TO: # TODO: if only USE_ONLY_PAIRED, then we need to specify how to convert... or we just make the CONVERT_IDS_TO a required parameter TODO: Need to test the function going both ways, to somatic and to germline
         logging.info("Harmonizing IDs (switching to {} IDs)".format(CONVERT_IDS_TO))
         prostate_data_loaders.harmonize_prostate_ids(datasets_w_germline_ids=[germline_rare_lof, germline_rare_missense, germline_common_lof, germline_common_missense], 
@@ -175,7 +170,7 @@ def main():
         ['somatic_mut', 'somatic_amp', 'somatic_del', 'germline_rare_high-impact', 'germline_rare_moderate-impact', 'germline_common_high-impact', 'germline_common_moderate-impact', 'additional', 'y'], 
         [somatic_mut, somatic_amp, somatic_del, germline_rare_lof, germline_rare_missense, germline_common_lof, germline_common_missense, additional, y]
     ))
-    # TODO: change so that the function call is inside a logging statement.
+
     report_and_eval.report_df_info_with_names(df_dict, n=5)
 
     if SAVE_DIR != '':

@@ -1,7 +1,10 @@
 # config for running model on zero-imputed germline, paired samples only
 
 # the datasets variable dictates which datasets from genetic data get included in the analysis. Name the datasets that you want to include in the model run
-datasets: ["somatic_amp", "somatic_del", "somatic_mut"]
+# datasets: ["somatic_amp", "somatic_del", "somatic_mut"]
+datasets: ["germline_rare_lof"]
+# datasets: ["somatic_amp", "somatic_del", "somatic_mut", "germline_rare_lof"]
+# datasets: ["germline_rare_lof", "germline_rare_missense", "germline_common_lof", "germline_common_missense"]
 # datasets: ["somatic_amp", "somatic_del", "somatic_mut", "germline_rare_lof", "germline_rare_missense", "germline_common_lof", "germline_common_missense"]
 evaluation_set: "validation"
 model_type: "pnet"
