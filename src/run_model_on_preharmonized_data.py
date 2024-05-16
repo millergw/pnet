@@ -52,7 +52,7 @@ def parse_arguments():
     parser.add("--input_data_wandb_id", default="", 
                help="W&B run ID that created the data in the input_data_dir, if applicable")
     # parser.add('--genetic_data', type=yaml.load, help="TODO: dictionary-style yaml")
-    parser.add("--cpus", required=False, help="Define the number of CPUs PyTorch uses during parallelization tasks")
+    parser.add("--cpus", type=int, required=False, help="Define the number of CPUs PyTorch uses during parallelization tasks")
     return parser.parse_args()
 
 
