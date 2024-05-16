@@ -21,8 +21,40 @@ parameters:
   wandb_group:
     value: "pnet_somatic_and_germline_exp_003"
   seed:
-    value: 123
+    values: [42, 155, 23, 356] 
   input_data_wandb_id:
     value: "33fk3jlw"
   input_data_dir:
     value: "../../pnet_germline/processed/wandb-group-data_prep_germline_tier12_and_somatic/converted-IDs-to-somatic_imputed-germline_True_imputed-somatic_False_paired-samples-True/wandb-run-id-33fk3jlw"
+  cpus:
+    value: 8
+
+
+# program: run_model_on_preharmonized_data.py
+# method: grid
+# parameters:
+#   datasets:
+#     values:
+#       - "somatic_amp somatic_del somatic_mut"
+#       - "germline_rare_lof"
+#       - "somatic_amp somatic_del somatic_mut germline_rare_lof"
+#       - "germline_rare_lof germline_rare_missense germline_common_lof germline_common_missense"
+#       - "somatic_amp somatic_del somatic_mut germline_rare_lof germline_rare_missense germline_common_lof germline_common_missense"
+#       - "somatic_amp somatic_del somatic_mut germline_rare_lof germline_rare_missense"
+#       - "somatic_amp somatic_del somatic_mut germline_common_lof germline_common_missense"
+#       - "somatic_amp somatic_del somatic_mut germline_rare_lof germline_common_lof"
+#       - "somatic_amp somatic_del somatic_mut germline_rare_missense germline_common_missense"
+#   data_config_f:
+#     value: "data.yaml"
+#   evaluation_set:
+#     values: ["validation"]
+#   model_type:
+#     values: ["pnet", "rf"]
+#   wandb_group:
+#     value: "pnet_somatic_and_germline_exp_003"
+#   seed:
+#     value: 123
+#   input_data_wandb_id:
+#     value: "33fk3jlw"
+#   input_data_dir:
+#     value: "../../pnet_germline/processed/wandb-group-data_prep_germline_tier12_and_somatic/converted-IDs-to-somatic_imputed-germline_True_imputed-somatic_False_paired-samples-True/wandb-run-id-33fk3jlw"

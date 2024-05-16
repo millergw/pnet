@@ -52,6 +52,7 @@ def parse_arguments():
     parser.add("--input_data_wandb_id", default="", 
                help="W&B run ID that created the data in the input_data_dir, if applicable")
     # parser.add('--genetic_data', type=yaml.load, help="TODO: dictionary-style yaml")
+    parser.add("--cpus", required=False, help="Define the number of CPUs PyTorch uses during parallelization tasks")
     return parser.parse_args()
 
 
@@ -100,6 +101,7 @@ def main():
     EVALUATION_SET_INDS_F = os.path.join(SPLITS_DIR, f"{EVALUATION_SET}_set.csv")
 
     Pnet.set_random_seeds(SEED, turn_off_cuDNN=False)
+    torch.set_num_threads(args.cpus)
 
     # TODO: add save dir
     SAVE_DIR = f"../results/{MODEL_TYPE}_eval_set_{EVALUATION_SET}/wandbID_{wandb.run.id}"
