@@ -1,28 +1,51 @@
 # Script to prepare each data modality to be directly loaded into P-NET
 # Author: Gwen Miller <gwen_miller@g.harvard.edu>
-# TODO: Goal is to edit such that easy to loop over as many different genetic data modalities as we need (e.g. if we have 16 different germline combos, don't want to have to write everything out manually...)
+
+"""
+Here, we prepare our inputs so they can be easily loaded into P-NET (and other models) without requiring any additional work beyond creating train/test/val splits. 
+Specifically, we take care of issues including:
+1. Harmonizing the IDs
+2. Performing imputation as necessary (to keep non-overlapping genes)
+
+Load each of your data modalities of interest.
+Format should be samples x genes. Set the sample IDs as the index.
+
+Data modalities:
+1. somatic amp
+1. somatic del
+1. somatic mut
+1. germline mut (subset to a small number of genes).
+
+Our somatic data has information for many more genes compared to the germline data. We will need to either:
+1. impute zeros for the excluded germline genes, or 
+2. subset the somatic datasets down to the ones that overlap with the germline data.
+
+
+We will be subsetting to the ~950 samples that we have matched somatic and germline data for.
+"""
+
 import os
+import logging
+import argparse
+import wandb
 
 # Gwen's scripts
 import data_manipulation
 import prostate_data_loaders
 import report_and_eval
 
-import wandb
-import argparse
 
-import logging
-
-logging.basicConfig(
-    filename="run_pnet.log",
-    encoding="utf-8",
-    format="%(asctime)s %(levelname)-8s %(message)s",
-    level=logging.INFO,
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+def configure_logging(log_file="run_pnet.log"):
+    logging.basicConfig(
+        filename=log_file,
+        encoding="utf-8",
+        format="%(asctime)s %(levelname)-8s %(message)s",
+        level=logging.INFO,
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    return
 
 
 def parse_arguments():
@@ -41,259 +64,218 @@ def parse_arguments():
     parser.add_argument(
         "--save_dir", default="../../pnet_germline/processed/", help="Directory storing model-ready input"
     )
-
     return parser.parse_args()
 
 
-def main():
-    """
-    Here, we prepare our inputs so they can be easily loaded into P-NET (and other models) without requiring any additional work beyond creating train/test/val splits.
-    Specifically, we take care of issues including:
-    1. Harmonizing the IDs
-    2. Performing imputation as necessary (to keep non-overlapping genes)
-
-    Load each of your data modalities of interest.
-    Format should be samples x genes. Set the sample IDs as the index.
-
-    Data modalities:
-    1. somatic amp
-    1. somatic del
-    1. somatic mut
-    1. germline mut (subset to a small number of genes).
-
-    Our somatic data has information for many more genes compared to the germline data. We will need to either:
-    1. impute zeros for the excluded germline genes, or
-    2. subset the somatic datasets down to the ones that overlap with the germline data.
-
-
-    We will be subsetting to the ~950 samples that we have matched somatic and germline data for.
-    """
-
-    logging.info("Parsing command-line arguments")
-    args = parse_arguments()
-
-    WANDB_GROUP = args.wandb_group
+def initialize_wandb(wandb_group):
     wandb.login()
-    wandb.init(
-        # Set the project where this run will be logged
-        project="prostate_met_status",
-        group=WANDB_GROUP,
-    )
-    wandb_run_id = wandb.run.id
+    wandb.init(project="prostate_met_status", group=wandb_group)
+    return wandb.run.id
 
-    # Access the values
-    USE_ONLY_PAIRED = (
-        args.use_only_paired
-    )  # TODO: note that only have 943 somatic with IDs mapping to the metadata as done here... but should be able to get all 1011 like in PNET paper
-    CONVERT_IDS_TO = args.convert_ids_to
-    ZERO_IMPUTE_GERMLINE = args.zero_impute_germline
-    ZERO_IMPUTE_SOMATIC = args.zero_impute_somatic
-    SOMATIC_DATADIR = args.somatic_datadir
-    GERMLINE_DATADIR = args.germline_datadir
-    SAVE_DIR = args.save_dir
 
-    logging.info("Constructing the save directory using the input parameters")
-    if WANDB_GROUP != "":
-        SAVE_DIR = os.path.join(
-            SAVE_DIR,
-            f"wandb-group-{WANDB_GROUP}/converted-IDs-to-{CONVERT_IDS_TO}_imputed-germline_{ZERO_IMPUTE_GERMLINE}_imputed-somatic_{ZERO_IMPUTE_SOMATIC}_paired-samples-{USE_ONLY_PAIRED}/wandb-run-id-{wandb_run_id}",
-        )
-        # SAVE_DIR = os.path.join(SAVE_DIR, f"wandb-group-{WANDB_GROUP}/converted-IDs-to-{CONVERT_IDS_TO}_imputed-germline_{ZERO_IMPUTE_GERMLINE}_imputed-somatic_{ZERO_IMPUTE_SOMATIC}/wandb-run-id-{wandb_run_id}")
-    else:
-        SAVE_DIR = os.path.join(
-            SAVE_DIR,
-            f"converted-IDs-to-{CONVERT_IDS_TO}_imputed-germline-{ZERO_IMPUTE_GERMLINE}_imputed-somatic-{ZERO_IMPUTE_SOMATIC}_paired-samples-{USE_ONLY_PAIRED}/wandb-run-id-{wandb_run_id}",
-        )
-    report_and_eval.make_dir_if_needed(SAVE_DIR)
+def log_parameters_to_wandb(params):
+    logging.info("Adding parameters to Weights and Biases")
+    wandb.config.update(params)
 
-    logging.debug("Defining file paths based on directories")
-    somatic_mut_f = os.path.join(SOMATIC_DATADIR, "P1000_final_analysis_set_cross_important_only.csv")
-    somatic_cnv_f = os.path.join(SOMATIC_DATADIR, "P1000_data_CNA_paper.csv")
 
-    # TODO: update paths
-    germline_rare_lof_f = os.path.join(
-        GERMLINE_DATADIR,
-        "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_rare_high-impact.txt",
-    )
-    germline_rare_missense_f = os.path.join(
-        GERMLINE_DATADIR,
-        "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_rare_moderate-impact.txt",
-    )
-    germline_common_lof_f = os.path.join(
-        GERMLINE_DATADIR,
-        "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_common_high-impact.txt",
-    )
-    germline_common_missense_f = os.path.join(
-        GERMLINE_DATADIR,
-        "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_common_moderate-impact.txt",
-    )
-
-    id_map_f = os.path.join(GERMLINE_DATADIR, "prostate/germline_somatic_id_map_outer_join.csv")
-    sample_metadata_f = os.path.join(
-        GERMLINE_DATADIR, "prostate/pathogenic_variants_with_clinical_annotation_1341_aug2021_correlation.csv"
-    )
-    logging.debug("Defining path(s) for the confounder/clincial/additional data")
-    additional_f = sample_metadata_f
-
-    logging.info("Adding hyperparameters and run metadata to Weights and Biases")
-    hparams = {
-        "zero_impute_germline": ZERO_IMPUTE_GERMLINE,
-        "zero_impute_somatic": ZERO_IMPUTE_SOMATIC,
-        "restricted_to_pairs": USE_ONLY_PAIRED,
-        "somatic_mut_f": somatic_mut_f,
-        "somatic_cnv_f": somatic_cnv_f,
-        "germline_rare_lof_f": germline_rare_lof_f,
-        "germline_rare_missense_f": germline_rare_missense_f,
-        "germline_common_lof_f": germline_common_lof_f,
-        "germline_common_missense_f": germline_common_missense_f,
-        "id_map_f": id_map_f,
-        "sample_metadata_f": sample_metadata_f,
-        "additional_f": sample_metadata_f,
-        "save_dir": SAVE_DIR,
+def load_data(somatic_datadir, germline_datadir):
+    somatic_datasets = {
+        "somatic_mut": prostate_data_loaders.get_somatic_mutation(
+            os.path.join(somatic_datadir, "P1000_final_analysis_set_cross_important_only.csv")
+        ),
+        "somatic_amp": prostate_data_loaders.get_somatic_amp_and_del(
+            os.path.join(somatic_datadir, "P1000_data_CNA_paper.csv")
+        )[0],
+        "somatic_del": prostate_data_loaders.get_somatic_amp_and_del(
+            os.path.join(somatic_datadir, "P1000_data_CNA_paper.csv")
+        )[1],
     }
-    wandb.config.update(hparams)
+    germline_datasets = {
+        "germline_rare_lof": prostate_data_loaders.get_germline_mutation(
+            os.path.join(
+                germline_datadir,
+                "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_rare_high-impact.txt",
+            )
+        ),
+        "germline_rare_missense": prostate_data_loaders.get_germline_mutation(
+            os.path.join(
+                germline_datadir,
+                "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_rare_moderate-impact.txt",
+            )
+        ),
+        "germline_common_lof": prostate_data_loaders.get_germline_mutation(
+            os.path.join(
+                germline_datadir,
+                "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_common_high-impact.txt",
+            )
+        ),
+        "germline_common_missense": prostate_data_loaders.get_germline_mutation(
+            os.path.join(
+                germline_datadir,
+                "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_common_moderate-impact.txt",
+            )
+        ),
+    }
+    return somatic_datasets, germline_datasets
 
-    logging.info("Loading data")
-    somatic_mut = prostate_data_loaders.get_somatic_mutation(somatic_mut_f)
-    somatic_amp, somatic_del = prostate_data_loaders.get_somatic_amp_and_del(somatic_cnv_f)
-    germline_rare_lof = prostate_data_loaders.get_germline_mutation(germline_rare_lof_f)
-    germline_rare_missense = prostate_data_loaders.get_germline_mutation(germline_rare_missense_f)
-    germline_common_lof = prostate_data_loaders.get_germline_mutation(germline_common_lof_f)
-    germline_common_missense = prostate_data_loaders.get_germline_mutation(germline_common_missense_f)
 
-    # response / target variable
-    y = prostate_data_loaders.get_target(
-        id_map_f, sample_metadata_f, id_to_use="Tumor_Sample_Barcode", target_col="is_met"
+def harmonize_ids(somatic_datasets, germline_datasets, additional, y, convert_ids_to):
+    logging.info("Harmonizing IDs (switching to {} IDs)".format(convert_ids_to))
+    germline_datasets, somatic_datasets = prostate_data_loaders.harmonize_prostate_ids(
+        datasets_w_germline_ids=list(germline_datasets.values()),
+        datasets_w_somatic_ids=list(somatic_datasets.values()) + [additional, y],
+        convert_ids_to=convert_ids_to,
     )
-    # confounders
-    additional = prostate_data_loaders.get_additional_data(
-        additional_f,
-        id_map_f,
-        cols_to_include=["PCA1", "PCA2", "PCA3", "PCA4", "PCA5", "PCA6", "PCA7", "PCA8", "PCA9", "PCA10"],
+    return germline_datasets, somatic_datasets
+
+
+def restrict_to_paired_samples(somatic_datasets, germline_datasets, additional, y):
+    logging.info("Restricting to overlapping samples (the rows/indices)")
+    restricted_datasets = data_manipulation.restrict_to_overlapping_indices(
+        *somatic_datasets.values(), *germline_datasets.values(), additional, y
     )
+    keys = list(somatic_datasets.keys()) + list(germline_datasets.keys()) + ["additional", "y"]
+    return dict(zip(keys, restricted_datasets))
 
-    if (
-        USE_ONLY_PAIRED or CONVERT_IDS_TO
-    ):  # TODO: if only USE_ONLY_PAIRED, then we need to specify how to convert... or we just make the CONVERT_IDS_TO a required parameter TODO: Need to test the function going both ways, to somatic and to germline
-        logging.info("Harmonizing IDs (switching to {} IDs)".format(CONVERT_IDS_TO))
-        prostate_data_loaders.harmonize_prostate_ids(
-            datasets_w_germline_ids=[
-                germline_rare_lof,
-                germline_rare_missense,
-                germline_common_lof,
-                germline_common_missense,
-            ],
-            datasets_w_somatic_ids=[somatic_mut, somatic_amp, somatic_del] + [additional, y],
-            convert_ids_to=CONVERT_IDS_TO,
-        )  # want to run stuff if change_to_somatic_ids or paired
-    if (
-        USE_ONLY_PAIRED
-    ):  # want to run stuff if paired; note that this will only work correctly if the IDs are correctly harmonized
-        logging.info("Restricting to overlapping samples (the rows/indices)")
-        (
-            somatic_mut,
-            somatic_amp,
-            somatic_del,
-            germline_rare_lof,
-            germline_rare_missense,
-            germline_common_lof,
-            germline_common_missense,
-            additional,
-            y,
-        ) = data_manipulation.restrict_to_overlapping_indices(
-            somatic_mut,
-            somatic_amp,
-            somatic_del,
-            germline_rare_lof,
-            germline_rare_missense,
-            germline_common_lof,
-            germline_common_missense,
-            additional,
-            y,
-        )
 
-    # zero impute dataset columns (genes) as necessary (maybe have a reference dataset vs all others? Unsure of best way to parameterize this function)
+def zero_impute_datasets(germline_datasets, somatic_datasets, zero_impute_germline, zero_impute_somatic):
     logging.info(
         "Zero-imputing columns (genes) as defined by user (impute germline: {}, impute somatic: {})".format(
-            ZERO_IMPUTE_GERMLINE, ZERO_IMPUTE_SOMATIC
+            zero_impute_germline, zero_impute_somatic
         )
     )
-    germline_rare_lof, germline_rare_missense, germline_common_lof, germline_common_missense = (
-        prostate_data_loaders.zero_impute_germline_datasets(
-            germline_datasets=[
-                germline_rare_lof,
-                germline_rare_missense,
-                germline_common_lof,
-                germline_common_missense,
-            ],
-            somatic_datasets=[somatic_mut, somatic_amp, somatic_del],
-            zero_impute_germline=ZERO_IMPUTE_GERMLINE,
+    if zero_impute_germline:
+        germline_datasets = prostate_data_loaders.zero_impute_germline_datasets(
+            germline_datasets=germline_datasets.values(),
+            somatic_datasets=somatic_datasets.values(),
+            zero_impute_germline=zero_impute_germline,
         )
+    if zero_impute_somatic:
+        somatic_datasets = prostate_data_loaders.zero_impute_somatic_datasets(
+            germline_datasets=germline_datasets.values(),
+            somatic_datasets=somatic_datasets.values(),
+            zero_impute_somatic=zero_impute_somatic,
+        )
+    return germline_datasets, somatic_datasets
+
+
+def restrict_to_common_genes(somatic_datasets, germline_datasets):
+    all_datasets = list(somatic_datasets.values()) + list(germline_datasets.values())
+    restricted_datasets = prostate_data_loaders.restrict_to_genes_in_common(*all_datasets)
+    keys = list(somatic_datasets.keys()) + list(germline_datasets.keys())
+    return dict(zip(keys, restricted_datasets))
+
+
+def process_data(somatic_datasets, germline_datasets, additional, y, args):
+    if args.convert_ids_to:
+        # harmonize the IDs of the datasets
+        germline_datasets, somatic_datasets = harmonize_ids(
+            somatic_datasets, germline_datasets, additional, y, args.convert_ids_to
+        )
+    if args.use_only_paired:
+        # restrict DFs to overlapping samples
+        datasets = restrict_to_paired_samples(somatic_datasets, germline_datasets, additional, y)
+        somatic_datasets = {k: datasets[k] for k in somatic_datasets.keys()}
+        germline_datasets = {k: datasets[k] for k in germline_datasets.keys()}
+        additional, y = datasets["additional"], datasets["y"]
+
+    # perform zero-imputation according to args
+    germline_datasets, somatic_datasets = zero_impute_datasets(
+        germline_datasets,
+        somatic_datasets,
+        args.zero_impute_germline,
+        args.zero_impute_somatic,
+    )
+    # restrict DFs to genes in common, and also restrict to TCGA prostate genes
+    all_datasets = restrict_to_common_genes(somatic_datasets, germline_datasets)
+    somatic_datasets = {k: all_datasets[k] for k in somatic_datasets.keys()}
+    germline_datasets = {k: all_datasets[k] for k in germline_datasets.keys()}
+
+    # return the updated DFs
+    return somatic_datasets, germline_datasets, additional, y
+
+
+def save_datasets(datasets, save_dir):
+    report_and_eval.make_dir_if_needed(save_dir)
+    for name, df in datasets.items():
+        save_path = os.path.join(save_dir, f"{name}.csv")
+        df.to_csv(save_path, index=True)
+        wandb.config.update({f"{name}_output_f": save_path})
+
+
+def main():
+    args = parse_arguments()
+    configure_logging()
+    wandb_run_id = initialize_wandb(args.wandb_group)
+
+    SAVE_DIR = os.path.join(
+        args.save_dir,
+        f"wandb-group-{args.wandb_group}/converted-IDs-to-{args.convert_ids_to}_imputed-germline_{args.zero_impute_germline}_imputed-somatic_{args.zero_impute_somatic}_paired-samples-{args.use_only_paired}/wandb-run-id-{wandb_run_id}",
+    )
+    report_and_eval.make_dir_if_needed(SAVE_DIR)
+
+    logging.info("Loading data")
+    somatic_datasets, germline_datasets = load_data(args.somatic_datadir, args.germline_datadir)
+    y = prostate_data_loaders.get_target(
+        os.path.join(args.germline_datadir, "prostate/germline_somatic_id_map_outer_join.csv"),
+        os.path.join(
+            args.germline_datadir,
+            "prostate/pathogenic_variants_with_clinical_annotation_1341_aug2021_correlation.csv",
+        ),
+        id_to_use="Tumor_Sample_Barcode",
+        target_col="is_met",
+    )
+    additional = prostate_data_loaders.get_additional_data(
+        os.path.join(
+            args.germline_datadir,
+            "prostate/pathogenic_variants_with_clinical_annotation_1341_aug2021_correlation.csv",
+        ),
+        os.path.join(args.germline_datadir, "prostate/germline_somatic_id_map_outer_join.csv"),
+        cols_to_include=[
+            "PCA1",
+            "PCA2",
+            "PCA3",
+            "PCA4",
+            "PCA5",
+            "PCA6",
+            "PCA7",
+            "PCA8",
+            "PCA9",
+            "PCA10",
+        ],
     )
 
-    somatic_mut, somatic_amp, somatic_del = prostate_data_loaders.zero_impute_somatic_datasets(
-        germline_datasets=[germline_rare_lof, germline_rare_missense, germline_common_lof, germline_common_missense],
-        somatic_datasets=[somatic_mut, somatic_amp, somatic_del],
-        zero_impute_somatic=ZERO_IMPUTE_SOMATIC,
-    )
+    params = {
+        "zero_impute_germline": args.zero_impute_germline,
+        "zero_impute_somatic": args.zero_impute_somatic,
+        "restricted_to_pairs": args.use_only_paired,
+        "somatic_datadir": args.somatic_datadir,
+        "germline_datadir": args.germline_datadir,
+        "save_dir": SAVE_DIR,
+        "id_map_f": os.path.join(args.germline_datadir, "prostate/germline_somatic_id_map_outer_join.csv"),
+        "sample_metadata_f": os.path.join(
+            args.germline_datadir,
+            "prostate/pathogenic_variants_with_clinical_annotation_1341_aug2021_correlation.csv",
+        ),
+    }
+    log_parameters_to_wandb(params)
 
-    logging.info(
-        "Now that we have processed all our datasets, we restrict to just the overlapping genes (the columns) (and further filter to those that fit some TCGA criteria)"
-    )
-    (
-        somatic_mut,
-        somatic_amp,
-        somatic_del,
-        germline_rare_lof,
-        germline_rare_missense,
-        germline_common_lof,
-        germline_common_missense,
-    ) = prostate_data_loaders.restrict_to_genes_in_common(
-        somatic_mut,
-        somatic_amp,
-        somatic_del,
-        germline_rare_lof,
-        germline_rare_missense,
-        germline_common_lof,
-        germline_common_missense,
+    logging.info("Processing datasets")
+    somatic_datasets, germline_datasets, additional, y = process_data(
+        somatic_datasets, germline_datasets, additional, y, args
     )
 
     logging.info("Printing some basic info for each of our datasets")
-    df_dict = dict(
-        zip(
-            [
-                "somatic_mut",
-                "somatic_amp",
-                "somatic_del",
-                "germline_rare_high-impact",
-                "germline_rare_moderate-impact",
-                "germline_common_high-impact",
-                "germline_common_moderate-impact",
-                "additional",
-                "y",
-            ],
-            [
-                somatic_mut,
-                somatic_amp,
-                somatic_del,
-                germline_rare_lof,
-                germline_rare_missense,
-                germline_common_lof,
-                germline_common_missense,
-                additional,
-                y,
-            ],
-        )
-    )
-
+    df_dict = {
+        **somatic_datasets,
+        **germline_datasets,
+        "additional": additional,
+        "y": y,
+    }
     report_and_eval.report_df_info_with_names(df_dict, n=5)
 
-    if SAVE_DIR != "":
-        logging.info("Saving each df to {}".format(SAVE_DIR))
-        for name, df in df_dict.items():
-            save_name = os.path.join(SAVE_DIR, name + ".csv")
-            df.to_csv(save_name, index=True)
-            wandb.config.update({name + "_output_f": save_name})
+    logging.info(f"Saving each DF to {SAVE_DIR}")
+    save_datasets(df_dict, SAVE_DIR)
 
     logging.info("Ending wandb run")
     wandb.finish()
