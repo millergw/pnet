@@ -61,7 +61,7 @@ class Regulatory_Block(nn.Module):
 
 class PNET_NN(pl.LightningModule):
     def __init__(self, reactome_network, task, nbr_gene_inputs=1, output_dim=1, additional_dims=0, lr=1e-3, weight_decay=1e-5,
-                 dropout=0.1, gene_dropout=0.1, input_dropout=0.5, activation='tanh', loss_fn=None, random_network=False, fcnn=False,
+                 dropout=0.1, gene_dropout=0.1, input_dropout=0.5, activation='tanh', h1_alpha=None, h1_regularization_method=None, l1_ratio=None, loss_fn=None, random_network=False, fcnn=False,
                  loss_weight=None, aux_loss_weights=[2, 7, 20, 54, 148, 400], add_regulatory_layer=False):
         super().__init__()
         self.reactome_network = reactome_network
@@ -76,6 +76,9 @@ class PNET_NN(pl.LightningModule):
         self.task = task
         self.loss_weight = loss_weight
         self.aux_loss_weights = aux_loss_weights
+        self.h1_alpha = h1_alpha
+        self.h1_regularization_method = h1_regularization_method
+        self.l1_ratio = l1_ratio
         if loss_fn is None:
             self.loss_fn = util.get_loss_function(task)
         else:
@@ -83,6 +86,18 @@ class PNET_NN(pl.LightningModule):
         self.activation = activation
         self.interpret_flag = False
         self.regulatory_flag = add_regulatory_layer
+
+        # set the h1 regularization loss function. We use the lambda function for deferred execution (e.g. computer with the current parameters during each training step)
+        if self.h1_alpha is not None:
+            if self.h1_regularization_method == 'l1':
+                self.h1_regularization_loss = lambda: l1_regularization_fn(self.input_layer.parameters(), self.h1_alpha)
+            elif self.h1_regularization_method == 'l2':
+                self.h1_regularization_loss = lambda: l2_regularization_fn(self.input_layer.parameters(), self.h1_alpha)
+            elif self.h1_regularization_method == 'elasticnet':
+                self.h1_regularization_loss = lambda: elasticnet_regularization_fn(self.input_layer.parameters(), self.h1_alpha, self.l1_ratio)
+        else:
+            self.h1_regularization_loss = zero_regularization_fn
+
         
         # Fetch connection masks from reactome network:
         if self.regulatory_flag:
@@ -158,13 +173,30 @@ class PNET_NN(pl.LightningModule):
         else:
             return y, y_hats
 
-    def step(self, who, batch, batch_nb):
+    def step(self, who, batch, batch_nb): # TODO: if we were to use the Lightning fit functionality, then we would use this step function. Currently, not being used. Idk why Marc isn't using it. I've updated this function to include 3 parts, but it was initially just BCE.
+        """
+        Customized to include 3 components.
+        """
         x, additional, y = batch
-        pred_y, _ = self(x, additional)
-        loss = F.cross_entropy(pred_y, y, reduction='mean')
+        pred_y, y_hats = self(x, additional)
+        
+        # 1. Overall Binary Cross Entropy Loss
+        bce_loss = F.cross_entropy(pred_y, y, reduction='mean')
+        
+        # 2. Layer-Weighted Loss
+        layer_weighted_loss = sum(self.aux_loss_weights[i] * F.cross_entropy(y_hat, y, reduction='mean') for i, y_hat in enumerate(y_hats))
+        
+        # 3. Regularization of the First Hidden Layer
+        h1_loss = self.h1_regularization_loss()
+        
+        # Total Loss
+        total_loss = bce_loss + layer_weighted_loss + h1_loss
 
-        self.log(who + '_bce_loss', loss)
-        return loss
+        self.log(who + '_bce_loss', bce_loss)
+        self.log(who + '_layer_weighted_loss', layer_weighted_loss)
+        self.log(who + '_h1_loss', h1_loss)
+        self.log(who + '_total_loss', total_loss)
+        return total_loss
     
     def predict_proba(self,  x, additional_data, threshold=0.5):
         logits, lower_level_logits = self.forward(x, additional_data)
@@ -196,7 +228,6 @@ class PNET_NN(pl.LightningModule):
 
 
     def training_step(self, batch, batch_nb):
-        # REQUIRED
         loss = self.step('train', batch, batch_nb)
         return loss
 
@@ -351,33 +382,27 @@ class PNET_NN(pl.LightningModule):
         self.interpret_flag=False            
         return gene_feature_importances, additional_feature_importances, gene_importances, layer_importance_scores
 
-
-def fit(model, dataloader, optimizer):
+def get_torch_device():
     if torch.cuda.is_available():
         device = torch.device('cuda')
+        logging.debug("Setting device to cuda")
     elif torch.backends.mps.is_available():
         device = torch.device('mps')
     else:
         device = torch.device('cpu')
+    return device
+
+
+def fit(model, dataloader, optimizer):
+    device = get_torch_device()
     model.train()
     running_loss = 0.0
-    # count = 0
     for batch in dataloader:
         gene_data, additional_data, y = batch
-        # count +=1
-        # if count <= 3:
-        #     logging.info(f"train batch {count} where y is 1: {np.where(batch[2])[0]}")
         gene_data, additional_data, y = gene_data.to(device), additional_data.to(device), y.to(device)
         optimizer.zero_grad()
         y_hat, y_hats = model(gene_data, additional_data)
-        if model.loss_weight is not None:
-            weight = model.loss_weight.to(device)
-            weight_ = weight[y.data.view(-1).long()].view_as(y)
-            aux_losses = [(model.loss_fn(y_h, y) * weight_).mean() * w for y_h, w in zip(y_hats, model.aux_loss_weights)]
-            loss = (model.loss_fn(y_hat, y) * weight_).mean() + sum(aux_losses)
-        else:
-            aux_losses = [model.loss_fn(y_h, y) * w for y_h, w in zip(y_hats, model.aux_loss_weights)]
-            loss = model.loss_fn(y_hat, y) + sum(aux_losses)
+        loss = custom_loss_calc(model, y, y_hat, y_hats, device)
         running_loss += loss.item()
         loss.backward()
         optimizer.step()
@@ -386,45 +411,50 @@ def fit(model, dataloader, optimizer):
 
 
 def validate(model, dataloader):
-    if torch.cuda.is_available():
-        device = torch.device('cuda')
-    elif torch.backends.mps.is_available():
-        device = torch.device('mps')
-    else:
-        device = torch.device('cpu')
+    device = get_torch_device()
     model.eval()
     running_loss = 0.0
-    # count = 0
     for batch in dataloader:
         gene_data, additional_data, y = batch
-        # count +=1
-        # if count <= 3:
-        #     logging.info(f"test batch {count} where y is 1: {np.where(batch[2])[0]}")
         gene_data, additional_data, y = gene_data.to(device), additional_data.to(device), y.to(device)
         y_hat, y_hats = model(gene_data, additional_data)
-        if model.loss_weight is not None:
-            weight = model.loss_weight.to(device)
-            weight_ = weight[y.data.view(-1).long()].view_as(y)
-            aux_losses = [(model.loss_fn(y_h, y) * weight_).mean() * w for y_h, w in zip(y_hats, model.aux_loss_weights)]
-            loss = (model.loss_fn(y_hat, y) * weight_).mean() + sum(aux_losses)
-        else:
-            aux_losses = [model.loss_fn(y_h, y) * w for y_h, w in zip(y_hats, model.aux_loss_weights)]
-            loss = model.loss_fn(y_hat, y) + sum(aux_losses)
+        loss = custom_loss_calc(model, y, y_hat, y_hats)
         running_loss += loss.item()
         loss.backward()
     loss = running_loss / len(dataloader.dataset)
     return loss
 
 
+def custom_loss_calc(model, y, y_hat, y_hats): # TODO: wip. Need to validate equivalence with old method.
+    """
+    Calculate the custom loss for a model, incorporating weighted loss (if applicable), auxiliary losses, and regularization of h1 if applicable.
+
+    Parameters:
+    model (nn.Module): The model instance containing the loss function, weights, and regularization method.
+    y (Tensor): The true target values.
+    y_hat (Tensor): The predicted values from the model's final output.
+    y_hats (list of Tensor): The predicted values from intermediate layers.
+
+    Returns:
+    Tensor: The computed loss value, including the main loss, auxiliary losses, and h1 regularization term.
+    """
+    device = get_torch_device()
+    if model.loss_weight is not None:
+        # Calculate the per-sample weighting based on the class weights in model.loss_weight. We will take the mean of these weighted losses as our loss term to avoid weird scaling issues... is that reasoning right?
+        weight = model.loss_weight.to(device)
+        weight_ = weight[y.data.view(-1).long()].view_as(y)
+        main_loss = (model.loss_fn(y_hat, y) * weight_).mean()
+        aux_losses = sum((model.loss_fn(y_h, y) * weight_).mean() * w for y_h, w in zip(y_hats, model.aux_loss_weights))
+    else:
+        main_loss = model.loss_fn(y_hat, y)
+        aux_losses = sum(model.loss_fn(y_h, y) * w for y_h, w in zip(y_hats, model.aux_loss_weights))
+
+    return main_loss + aux_losses + model.h1_regularization_loss()
+
+
 def train(model, train_loader, test_loader, save_path, lr=0.5e-3, weight_decay=1e-4, epochs=300, verbose=False,
           early_stopping=True, lr_scheduler=False):
-    if torch.cuda.is_available():
-        device = torch.device('cuda')
-        print('We are sending to cuda')
-    elif torch.backends.mps.is_available():
-        device = torch.device('mps')
-    else:
-        device = torch.device('cpu')
+    device = get_torch_device()
     model = model.to(device)
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = StepLR(optimizer, step_size=30, gamma=lr)
@@ -484,7 +514,10 @@ def evaluate_interpret_save(model, test_dataset, path):
 
 
 
-def run(genetic_data, target, save_path='../results/model', gene_set=None, additional_data=None, test_split=0.2, seed=None, dropout=0.2,input_dropout=0.5, lr=1e-3, weight_decay=1e-3, batch_size=64, epochs=400, verbose=False, early_stopping=True, train_inds=None, test_inds=None, random_network=False, fcnn=False, shuffle_labels=False, task=None, loss_fn=None, loss_weight=None, aux_loss_weights=[2, 7, 20, 54, 148, 400], drop_pathways=[]):
+def run(genetic_data, target, save_path='../results/model', gene_set=None, additional_data=None, test_split=0.2, seed=None, dropout=0.2,input_dropout=0.5, lr=1e-3, weight_decay=1e-3, batch_size=64, epochs=400, 
+        h1_alpha=None, h1_regularization_method=None, l1_ratio=None, # related to regularizing the first hidden layer
+        verbose=False, early_stopping=True, train_inds=None, test_inds=None, random_network=False, fcnn=False, shuffle_labels=False, 
+        task=None, loss_fn=None, loss_weight=None, aux_loss_weights=[2, 7, 20, 54, 148, 400], drop_pathways=[]):
     if task is None:
         task = util.get_task(target)
     target = util.format_target(target, task)
@@ -497,7 +530,8 @@ def run(genetic_data, target, save_path='../results/model', gene_set=None, addit
     model = PNET_NN(reactome_network=reactome_network, task=task, nbr_gene_inputs=len(genetic_data), dropout=dropout,
                     additional_dims=train_dataset.additional_data.shape[1], lr=lr, weight_decay=weight_decay,
                     output_dim=target.shape[1], random_network=random_network, fcnn=fcnn, loss_fn=loss_fn, loss_weight=loss_weight,
-                    input_dropout=input_dropout, aux_loss_weights=aux_loss_weights
+                    input_dropout=input_dropout, aux_loss_weights=aux_loss_weights,
+                    h1_alpha=h1_alpha, h1_regularization_method=h1_regularization_method, l1_ratio=l1_ratio
                     )
     train_loader, test_loader = pnet_loader.to_dataloader(train_dataset, test_dataset, batch_size)
     model, train_scores, test_scores = train(model, train_loader, test_loader, save_path, lr, weight_decay, epochs, verbose,
@@ -626,3 +660,38 @@ def set_random_seeds(random_seed, turn_off_cuDNN=False):
     if turn_off_cuDNN: 
         logging.debug("We're making cuDNN deterministically select an algorithm for reproducibility purposes. This may reduce performance.")
         torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
+
+
+# Define regularization functions
+def calc_l1(parameters):
+    return sum(torch.norm(p, p=1) for p in parameters)
+
+def calc_l2(parameters):
+    return sum(torch.norm(p, p=2) for p in parameters)
+
+def l1_regularization_fn(parameters, alpha):
+    return alpha * calc_l1(parameters)
+
+def l2_regularization_fn(parameters, alpha):
+    return alpha * calc_l2(parameters)
+
+def elasticnet_regularization_fn(parameters, alpha, l1_ratio=0.5):
+    """
+    Calculate the Elastic Net regularization loss.
+
+    Parameters:
+    parameters (iterable): The model parameters to apply regularization to.
+    alpha (float): The overall strength of the regularization.
+    l1_ratio (float): The ratio between L1 and L2 regularization (0 <= l1_ratio <= 1).
+
+    Returns:
+    float: The computed Elastic Net regularization loss.
+    """
+    l1_term = calc_l1(parameters)
+    l2_term = calc_l2(parameters)
+    return alpha * (l1_ratio * l1_term + (1 - l1_ratio) * l2_term)
+
+# No-op function for zero regularization
+def zero_regularization_fn(*args, **kwargs):
+    return 0

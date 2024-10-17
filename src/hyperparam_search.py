@@ -45,62 +45,36 @@ def main():
     genetic_data = {'mut': prostate_mutations, 'amp': prostate_amp, 'del': prostate_del}
 
     canc_genes = list(pd.read_csv('../../pnet_database/genes/cancer_genes.txt').values.reshape(-1))
+    regularization_method_values = ['l1', 'l2', 'elasticnet']
+    h1_regularization_strength = [0.0, 0.2, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
 
+    for method_name in regularization_method_values:
+        for alpha in h1_regularization_strength:
+            save_path = '../results/hyperparam_search/h1regularization-{}_alpha-{}'.format(method_name, alpha)
+            if not os.path.exists(save_path):
+                os.makedirs(save_path)
+            model = Pnet.PNET_NN(reactome_network=reactome_network, task=task, nbr_gene_inputs=len(genetic_data),
+                            dropout=dropout, additional_dims=train_dataset.additional_data.shape[1], lr=lr, 
+                            weight_decay=weight_decay, output_dim=target.shape[1], random_network=False,
+                            fcnn=False, loss_fn=loss_fn, loss_weight=class_weights, gene_dropout=dropout,
+                                    input_dropout=inp_drop)
 
-    weight_decay_values = [5e-3, 1e-2]
-    input_dropout_values = [0.0, 0.2, 0.4, 0.5, 0.6, 0.8]
-    pathway_dropout_values = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]
-    learning_rate_values = [1e-2, 5e-3, 1e-3, 5e-4, 1e-4, 5e-5]
-    batch_size_values = [32, 64, 128]
+            train_loader, test_loader = pnet_loader.to_dataloader(train_dataset, test_dataset, batch_size)
+            model, train_scores, test_scores = Pnet.train(model, train_loader, test_loader, save_path+'/model', lr,
+                                                        weight_decay, epochs=400, verbose=False, 
+                                                        early_stopping=True)
 
-    class_weights = util.get_class_weights(torch.tensor(prostate_response.values).view(-1))
-    task = util.get_task(prostate_response)
-    target = util.format_target(prostate_response, task)
+            df = pd.DataFrame(index=['train_loss', 'test_loss'], data=[train_scores, test_scores]).transpose()
 
-    train_inds = list(pd.read_csv('../data/splits/train_set_{}.csv'.format(2))['indicies'])
-    test_inds = list(pd.read_csv('../data/splits/test_set_{}.csv'.format(2))['indicies'])
-    train_dataset, test_dataset = pnet_loader.generate_train_test(genetic_data, target=target, train_inds=train_inds,
-                                                                  test_inds=test_inds, gene_set=canc_genes, seed=123)
+            model.to('cpu')
+            pred, preds = model(x_test, additional_test)
+            y_pred_proba = model.predict_proba(x_test, additional_test).detach()
+            fpr, tpr, _ = metrics.roc_curve(y_test,  y_pred_proba)
+            test_auc = metrics.roc_auc_score(y_test, y_pred_proba)
+            df['auc'] = test_auc
 
-
-    x_test = test_dataset.x
-    additional_test = test_dataset.additional
-    y_test = test_dataset.y
-
-    reactome_network = ReactomeNetwork.ReactomeNetwork(train_dataset.get_genes())
-    loss_fn=nn.BCEWithLogitsLoss(reduce=None)
-
-    for weight_decay in weight_decay_values:
-        for inp_drop in input_dropout_values:
-            for dropout in pathway_dropout_values:
-                for lr in learning_rate_values:
-                    for batch_size in batch_size_values:
-                        save_path = '../results/hyperparam_search/wd{}_id{}_do{}_lr{}_bs{}'.format(weight_decay, inp_drop,
-                                                                                                    dropout, lr, batch_size)
-                        if not os.path.exists(save_path):
-                            os.makedirs(save_path)
-                        model = Pnet.PNET_NN(reactome_network=reactome_network, task=task, nbr_gene_inputs=len(genetic_data),
-                                        dropout=dropout, additional_dims=train_dataset.additional_data.shape[1], lr=lr, 
-                                        weight_decay=weight_decay, output_dim=target.shape[1], random_network=False,
-                                        fcnn=False, loss_fn=loss_fn, loss_weight=class_weights, gene_dropout=dropout,
-                                             input_dropout=inp_drop)
-
-                        train_loader, test_loader = pnet_loader.to_dataloader(train_dataset, test_dataset, batch_size)
-                        model, train_scores, test_scores = Pnet.train(model, train_loader, test_loader, save_path+'/model', lr,
-                                                                 weight_decay, epochs=400, verbose=False, 
-                                                                 early_stopping=True)
-
-                        df = pd.DataFrame(index=['train_loss', 'test_loss'], data=[train_scores, test_scores]).transpose()
-
-                        model.to('cpu')
-                        pred, preds = model(x_test, additional_test)
-                        y_pred_proba = model.predict_proba(x_test, additional_test).detach()
-                        fpr, tpr, _ = metrics.roc_curve(y_test,  y_pred_proba)
-                        test_auc = metrics.roc_auc_score(y_test, y_pred_proba)
-                        df['auc'] = test_auc
-
-                        df.to_csv(save_path+'/loss.csv', index=False)
-                        
+            df.to_csv(save_path+'/loss.csv', index=False)
+            
                         
 if __name__ == "__main__":
     main()

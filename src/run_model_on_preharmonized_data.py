@@ -81,6 +81,15 @@ def parse_arguments():
     parser.add(
         "--input_dropout", default=0.5, type=float, help="Proportion of dropout between the input layer and gene layer"
     )
+    parser.add(
+        "--h1_alpha", default=0.5, type=float, help="Strength of regularization on weights going to the first hidden layer (genes)"
+    )
+    parser.add(
+        "--h1_regularization_method", default="l1", choices=["l1", "l2", "elasticnet"], help="Type of regularization on weights going to the first hidden layer (genes)"
+    )
+    parser.add(
+        "--l1_ratio", required=False, default=0.5, type=float, help="Control the amount of L1 vs L2 regularization when using ElasticNet"
+    )
     return parser.parse_args()
 
 
@@ -116,6 +125,7 @@ def main():
         group=WANDB_GROUP,
         resume="must",
     )
+
     # allow for WandB to automatically re-queue if a run gets interrupted
     run.mark_preempting()
     wandb_run_id = wandb.run.id
@@ -181,6 +191,9 @@ def main():
     hparams = {
         "wandb_run_id_that_created_inputs": input_data_wandb_id,
         "nbr_gene_inputs": len(genetic_data),
+        "h1_alpha":args.h1_alpha,
+        "h1_regularization_method":args.h1_regularization_method,
+        "l1_ratio":args.l1_ratio,
         "dropout": 0.2,
         "input_dropout":args.input_dropout,
         "additional_dims": 0,
@@ -274,6 +287,9 @@ def main():
             loss_fn=None,
             loss_weight=None,
             aux_loss_weights=[2, 7, 20, 54, 148, 400],
+            h1_alpha=hparams["h1_alpha"],
+            h1_regularization_method=hparams["h1_regularization_method"],
+            l1_ratio=hparams["l1_ratio"]
         )
 
         logging.info("Check model convergence by examining the plot of how loss changes over time")

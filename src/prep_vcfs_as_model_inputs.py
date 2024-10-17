@@ -115,17 +115,55 @@ def load_data(somatic_datadir, germline_datadir):
                 "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_common_moderate-impact.txt",
             )
         ),
+        "germline_rare_common_lof": prostate_data_loaders.get_germline_mutation(
+            os.path.join(
+                germline_datadir,
+                "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_rare_common_high-impact.txt",
+            )
+        ),
+        "germline_rare_common_missense": prostate_data_loaders.get_germline_mutation(
+            os.path.join(
+                germline_datadir,
+                "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_rare_common_moderate-impact.txt",
+            )
+        ),
+        "germline_rare_lof_missense": prostate_data_loaders.get_germline_mutation(
+            os.path.join(
+                germline_datadir,
+                "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_rare_high-impact_moderate-impact.txt",
+            )
+        ),
+        "germline_common_lof_missense": prostate_data_loaders.get_germline_mutation(
+            os.path.join(
+                germline_datadir,
+                "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_common_high-impact_moderate-impact.txt",
+            )
+        ),
+        "germline_rare_common_lof_missense": prostate_data_loaders.get_germline_mutation(
+            os.path.join(
+                germline_datadir,
+                "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_rare_common_high-impact_moderate-impact.txt",
+            )
+        ),
     }
     return somatic_datasets, germline_datasets
 
 
 def harmonize_ids(somatic_datasets, germline_datasets, additional, y, convert_ids_to):
     logging.info("Harmonizing IDs (switching to {} IDs)".format(convert_ids_to))
-    germline_datasets, somatic_datasets = prostate_data_loaders.harmonize_prostate_ids(
+
+    germline_list = list(germline_datasets.values())
+    somatic_list = list(somatic_datasets.values())
+
+    germline_list, somatic_list = prostate_data_loaders.harmonize_prostate_ids(
         datasets_w_germline_ids=list(germline_datasets.values()),
         datasets_w_somatic_ids=list(somatic_datasets.values()) + [additional, y],
         convert_ids_to=convert_ids_to,
     )
+
+    germline_datasets = {key: value for key, value in zip(germline_datasets.keys(), germline_list)}
+    somatic_datasets = {key: value for key, value in zip(somatic_datasets.keys(), somatic_list)}
+
     return germline_datasets, somatic_datasets
 
 
@@ -144,18 +182,25 @@ def zero_impute_datasets(germline_datasets, somatic_datasets, zero_impute_germli
             zero_impute_germline, zero_impute_somatic
         )
     )
+    germline_list = list(germline_datasets.values())
+    somatic_list = list(somatic_datasets.values())
+
     if zero_impute_germline:
-        germline_datasets = prostate_data_loaders.zero_impute_germline_datasets(
-            germline_datasets=germline_datasets.values(),
-            somatic_datasets=somatic_datasets.values(),
+        germline_list = prostate_data_loaders.zero_impute_germline_datasets(
+            germline_datasets=germline_list,
+            somatic_datasets=somatic_list,
             zero_impute_germline=zero_impute_germline,
         )
+
     if zero_impute_somatic:
-        somatic_datasets = prostate_data_loaders.zero_impute_somatic_datasets(
-            germline_datasets=germline_datasets.values(),
-            somatic_datasets=somatic_datasets.values(),
+        somatic_list = prostate_data_loaders.zero_impute_somatic_datasets(
+            germline_datasets=germline_list,
+            somatic_datasets=somatic_list,
             zero_impute_somatic=zero_impute_somatic,
         )
+
+    germline_datasets = {key: value for key, value in zip(germline_datasets.keys(), germline_list)}
+    somatic_datasets = {key: value for key, value in zip(somatic_datasets.keys(), somatic_list)}
     return germline_datasets, somatic_datasets
 
 
@@ -212,7 +257,6 @@ def main():
         args.save_dir,
         f"wandb-group-{args.wandb_group}/converted-IDs-to-{args.convert_ids_to}_imputed-germline_{args.zero_impute_germline}_imputed-somatic_{args.zero_impute_somatic}_paired-samples-{args.use_only_paired}/wandb-run-id-{wandb_run_id}",
     )
-    report_and_eval.make_dir_if_needed(SAVE_DIR)
 
     logging.info("Loading data")
     somatic_datasets, germline_datasets = load_data(args.somatic_datadir, args.germline_datadir)
@@ -275,6 +319,7 @@ def main():
     report_and_eval.report_df_info_with_names(df_dict, n=5)
 
     logging.info(f"Saving each DF to {SAVE_DIR}")
+    report_and_eval.make_dir_if_needed(SAVE_DIR)
     save_datasets(df_dict, SAVE_DIR)
 
     logging.info("Ending wandb run")
