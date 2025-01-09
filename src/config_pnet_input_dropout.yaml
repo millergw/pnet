@@ -1,0 +1,34 @@
+
+# sweep to test impact of changing input dropout on performance, feature stability
+project: "prostate_met_status"
+group: pnet_input_dropout_001
+
+program: run_model_on_preharmonized_data.py
+method: grid
+parameters:
+  datasets:
+    values:
+      - "somatic_amp somatic_del somatic_mut"
+      - "germline_rare_lof"
+      - "germline_rare_common_lof_missense" # all 4 germline
+      - "somatic_amp somatic_del somatic_mut germline_rare_common_lof_missense" # s and all 4 germline
+  data_config_f:
+    value: "data.yaml"
+  evaluation_set:
+    values: ["validation"]
+  model_type:
+    values: ["pnet"]
+  wandb_group:
+    value: "pnet_input_dropout_001"
+  wandb_project: 
+    value: "prostate_met_status"
+  seed:
+    values: [123, 42] 
+  input_dropout:
+    values: [0.1, 0.25, 0.5, 0.75, 0.9, 0.99]
+  input_data_wandb_id:
+    value: "q151d0zw"
+  input_data_dir:
+    value: "../../pnet_germline/processed/wandb-group-data_prep_germline_tier12_and_somatic/converted-IDs-to-somatic_imputed-germline_True_imputed-somatic_False_paired-samples-True/wandb-run-id-q151d0zw"
+  cpus:
+    value: 8
