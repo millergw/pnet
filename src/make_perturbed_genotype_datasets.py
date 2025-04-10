@@ -62,8 +62,8 @@ def create_target_dataframe(df_index, sample_subset):
 
 
 # === CONFIGURATION === #
-DATA_DIR = "../../pnet_germline/processed/wandb-group-data_prep_germline_tier12_and_somatic/converted-IDs-to-somatic_imputed-germline_True_imputed-somatic_False_paired-samples-True/wandb-run-id-q151d0zw/somatic_mut.csv"
-SAVE_DIR = "../../pnet_germline/processed/perturbed_genotype_datasets/p1000_somatic_mut/"
+DATA_DIR = "../../pnet_germline/processed/wandb-group-data_prep_germline_tier12_and_somatic/converted-IDs-to-somatic_imputed-germline_True_imputed-somatic_False_paired-samples-True/wandb-run-id-q151d0zw"
+SAVE_DIR = "../../pnet_germline/processed/perturbed_genotype_datasets/p1000_somatic_mut"
 DATA_FILENAME = "somatic_mut.csv"
 summary_csv_path = os.path.join(SAVE_DIR, "perturbation_summary.csv")
 SEED = 42
