@@ -1,11 +1,12 @@
 import os
 import subprocess
 import wandb
+from collections import defaultdict
 
 
-def fetch_relevant_runs(project_name, sweep_id, model_type):
+def fetch_grouped_runs(project_name, sweep_id, model_type):
     """
-    Fetch WandB run IDs from a specific sweep and filter by model type.
+    Fetch WandB run IDs from a specific sweep and group by shared train/eval indices.
 
     Parameters:
         project_name (str): The name of the WandB project.
@@ -13,30 +14,45 @@ def fetch_relevant_runs(project_name, sweep_id, model_type):
         model_type (str): The model type to filter for.
 
     Returns:
-        list: A list of WandB run IDs that match the criteria.
+        dict: Dictionary where keys are (train_set, eval_set) pairs and values are lists of run IDs.
     """
     api = wandb.Api()
     runs = api.runs(project_name, filters={"sweep": sweep_id, "state": "finished"})
 
-    relevant_run_ids = []
+    grouped_runs = defaultdict(list)
+
     for run in runs:
         if run.config.get("model_type") == model_type:
-            relevant_run_ids.append(run.id)
+            train_set = run.config["train_set_indices_f"]
+            eval_set = run.config["evaluation_set_indices_f"]
+            grouped_runs[(train_set, eval_set)].append(run.id)
 
-    return relevant_run_ids
+    return grouped_runs
 
 
-def run_script_for_each_run(script_path, project_name, relevant_run_ids):
+def run_script_for_each_group(script_path, project_name, grouped_runs):
     """
-    Execute the script for each relevant WandB run ID.
+    Execute the script for each group of runs that share the same train/eval indices.
 
     Parameters:
         script_path (str): Path to the script to execute.
         project_name (str): The name of the WandB project.
-        relevant_run_ids (list): List of WandB run IDs to process.
+        grouped_runs (dict): Dictionary of grouped run IDs.
     """
-    for run_id in relevant_run_ids:
-        command = ["python", script_path, "--wandb_project", project_name, "--wandb_run_id", run_id]
+    for (train_set, eval_set), run_ids in grouped_runs.items():
+        run_ids_str = ",".join(run_ids)  # Convert list of IDs to comma-separated string
+        command = [
+            "python",
+            script_path,
+            "--wandb_project",
+            project_name,
+            "--wandb_run_ids",
+            run_ids_str,  # Pass all grouped run IDs at once
+            "--train_set",
+            train_set,
+            "--eval_set",
+            eval_set,
+        ]
         print(f"Executing: {' '.join(command)}")
         subprocess.run(command)
 
@@ -46,13 +62,13 @@ if __name__ == "__main__":
     PROJECT_NAME = "prostate_met_status"
     SWEEP_ID = "cmlmrw2s"
     MODEL_TYPE = "pnet"
-    SCRIPT_PATH = "./analyze_misclassifications.py"  # Path to your script that takes --wandb_run_id
+    SCRIPT_PATH = "./analyze_misclassifications.py"
 
-    # Step 1: Fetch relevant run IDs
-    print(f"Fetching runs for project '{PROJECT_NAME}', sweep '{SWEEP_ID}', model type '{MODEL_TYPE}'...")
-    relevant_run_ids = fetch_relevant_runs(PROJECT_NAME, SWEEP_ID, MODEL_TYPE)
-    print(f"Found {len(relevant_run_ids)} relevant runs.")
+    # Step 1: Fetch grouped runs
+    print(f"Fetching grouped runs for project '{PROJECT_NAME}', sweep '{SWEEP_ID}', model type '{MODEL_TYPE}'...")
+    grouped_runs = fetch_grouped_runs(PROJECT_NAME, SWEEP_ID, MODEL_TYPE)
+    print(f"Found {len(grouped_runs)} unique training/evaluation index set combination(s).")
 
-    # Step 2: Run the script for each relevant WandB run ID
-    print(f"Executing script '{SCRIPT_PATH}' for each run...")
-    run_script_for_each_run(SCRIPT_PATH, PROJECT_NAME, relevant_run_ids)
+    # Step 2: Execute script once per group
+    print(f"Executing script '{SCRIPT_PATH}' for each group...")
+    run_script_for_each_group(SCRIPT_PATH, PROJECT_NAME, grouped_runs)
