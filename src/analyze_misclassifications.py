@@ -50,12 +50,13 @@ def fetch_run_config(run_id, project_name):
         raise
 
 
-def fetch_model_parameters(run_config):
+def fetch_model_parameters(run_config, train_dataset):
     """
     Fetch hyperparameters from WandB run config and instantiate the model.
 
     Parameters:
-        run_config (dict): The WandB run configuration. If parameter not in config, assume Pnet.run default was used.
+        run_config (dict): The WandB run configuration.
+        train_dataset (PNETDataset): The training dataset (used to extract additional_dims).
 
     Returns:
         dict: The model parameters
@@ -71,32 +72,35 @@ def fetch_model_parameters(run_config):
         "h1_alpha": run_config.get("h1_alpha", None),
         "h1_regularization_method": run_config.get("h1_regularization_method", None),
         "l1_ratio": run_config.get("l1_ratio", None),
-        "additional_dims": run_config.get("additional_dims", 0),
         "aux_loss_weights": run_config.get("aux_loss_weights", [2, 7, 20, 54, 148, 400]),  # Default list
         "random_network": run_config.get("random_network", False),
         "fcnn": run_config.get("fcnn", False),
         "loss_fn": run_config.get("loss_fn", None),
         "loss_weight": run_config.get("loss_weight", None),
+        # Always dynamically retrieve additional_dims to match training
+        "additional_dims": train_dataset.additional_data.shape[1],
     }
 
-    # # Extract hyperparameters from WandB config with None or False as appropriate
     # hparams = {
-    #     "nbr_gene_inputs": run_config.get("nbr_gene_inputs", None),
+    #     "nbr_gene_inputs": run_config["nbr_gene_inputs"],
     #     "dropout": run_config.get("dropout", None),
     #     "lr": run_config.get("lr", None),
     #     "weight_decay": run_config.get("weight_decay", None),
-    #     "output_dim": run_config.get("output_dim", None),
+    #     "output_dim": run_config["output_dim"],
     #     "input_dropout": run_config.get("input_dropout", None),
     #     "h1_alpha": run_config.get("h1_alpha", None),
     #     "h1_regularization_method": run_config.get("h1_regularization_method", None),
     #     "l1_ratio": run_config.get("l1_ratio", None),
-    #     "additional_dims": run_config.get("additional_dims", None),
     #     "aux_loss_weights": run_config.get("aux_loss_weights", None),
     #     "random_network": run_config.get("random_network", False),
     #     "fcnn": run_config.get("fcnn", False),
     #     "loss_fn": run_config.get("loss_fn", None),
     #     "loss_weight": run_config.get("loss_weight", None),
+    #     # Always dynamically retrieve additional_dims to match training
+    #     "additional_dims": train_dataset.additional_data.shape[1]
     # }
+
+    logging.info(f"Setting additional_dims dynamically: {hparams['additional_dims']}")
     return hparams
 
 
@@ -138,7 +142,9 @@ def load_model_weights(model, path_to_model):
 def parse_arguments():
     parser = configargparse.ArgumentParser(description="Back-calculating the predictions and probabilities")
     parser.add("--wandb_project", required=True, help="WandB project name")
-    parser.add("--wandb_run_id", required=True, help="WandB run ID to fetch parameters")
+    parser.add("--wandb_run_ids", required=True, help="Comma-separated WandB run IDs")  # Now multiple runs
+    parser.add("--train_set", required=True, help="Path to training set indices file")
+    parser.add("--eval_set", required=True, help="Path to evaluation set indices file")
     return parser.parse_args()
 
 
@@ -151,30 +157,21 @@ def read_config(filename):
 def main():
     args = parse_arguments()
 
-    # Fetch run configuration from WandB
-    logging.info(f"Fetching configuration for run {args.wandb_run_id} from project {args.wandb_project}")
-    run_config = fetch_run_config(args.wandb_run_id, args.wandb_project)
+    # Parse multiple run IDs from the command line
+    run_ids = args.wandb_run_ids.split(",")
 
-    # Extract relevant parameters
-    logging.info("Extracting relevant parameters from W&B using the run id.")
-    SAVE_DIR = run_config.get("save_dir")
-    MODEL_TYPE = run_config.get("model_type")
-    DATASETS_TO_USE = run_config.get("dataset")
-    SEED = run_config.get("random_seed")
-    TRAIN_SET_INDS_F = run_config.get("train_set_indices_f")
-    EVALUATION_SET_INDS_F = run_config.get("evaluation_set_indices_f")
-    EVALUATION_SET = run_config.get("evaluation_set")
-    INPUT_DATA_DIR = run_config.get("input_data_dir")
+    # Fetch first run's config to load data
+    logging.info(f"Fetching first run's config to load data (run ID {run_ids[0]} from project {args.wandb_project})")
+    run_config = fetch_run_config(run_ids[0], args.wandb_project)
 
-    Pnet.set_random_seeds(SEED, turn_off_cuDNN=False)
-
-    # Taking steps to load the data based on the WANDB run config
+    # Load genetic data, additional data, and target labels (only once)
     logging.info("Loading genetic data, additional data, and target labels.")
-    config_file = run_config.get("data_config_f")
-    config = read_config(config_file)
+    config = read_config(run_config["data_config_f"])
+    INPUT_DATA_DIR = run_config["input_data_dir"]
 
     for name, info in config["genetic_data"].items():
         config["genetic_data"][name]["df"] = pd.read_csv(os.path.join(INPUT_DATA_DIR, info["filename"]), index_col=0)
+
     config["confounder_data"]["df"] = pd.read_csv(
         os.path.join(INPUT_DATA_DIR, config["confounder_data"]["filename"]), index_col=0
     )
@@ -182,14 +179,13 @@ def main():
 
     additional = config["confounder_data"]["df"]
     y = config["target"]["df"]
-
-    genetic_data = {key: config["genetic_data"][key]["df"] for key in DATASETS_TO_USE if key in config["genetic_data"]}
+    genetic_data = {key: config["genetic_data"][key]["df"] for key in run_config["dataset"]}
     logging.info(f"Loaded datasets: {list(genetic_data.keys())}")
 
-    training_inds = pd.read_csv(TRAIN_SET_INDS_F, index_col="id").index.tolist()
-    evaluation_inds = pd.read_csv(EVALUATION_SET_INDS_F, index_col="id").index.tolist()
-
     logging.info("Loading train and test datasets")
+    training_inds = pd.read_csv(args.train_set, index_col="id").index.tolist()
+    evaluation_inds = pd.read_csv(args.eval_set, index_col="id").index.tolist()
+
     train_dataset, test_dataset = pnet_loader.generate_train_test(
         genetic_data=genetic_data,
         additional_data=additional,
@@ -199,56 +195,144 @@ def main():
         gene_set=None,
     )
 
-    # Taking steps to load the model
-    # Step 1: Load Reactome Network
-    logging.info("Recreating reactome network from train dataset genes.")
+    # Load Reactome Network once
+    logging.info("Building Reactome Network.")
     reactome_network = ReactomeNetwork.ReactomeNetwork(
         train_dataset.get_genes(),
-        use_embeddings=False,  # Modify if embeddings were used
-    )
-    # Step 2: Define Task
-    task = "BC"  # binary classification. WARNING: hardcoded!
-
-    # Step 3: Fetch Hyperparameters
-    model_hparams = fetch_model_parameters(run_config)
-
-    # Step 4: Instantiate Model
-    model = instantiate_model(model_hparams, reactome_network, task)
-
-    # Step 5: Load the pre-trained weights and set to evaluation mode
-    model = load_model_weights(model, path_to_model=os.path.join(SAVE_DIR, "model.pt"))
-    model.eval()
-
-    # Save predictions and probabilities
-    logging.info(f"Saving predictions and probabilities for training set")
-    y_preds, y_probas = report_and_eval.get_model_preds_and_probs(
-        model=model, pnet_dataset=train_dataset, who="train", model_type=MODEL_TYPE
-    )
-    report_and_eval.save_predictions_and_probs(
-        save_dir=SAVE_DIR,
-        who="train",
-        y_true=train_dataset.y,
-        y_preds=y_preds,
-        y_probas=y_probas,
-        indices=train_dataset.input_df.index.tolist(),
+        use_embeddings=False,
     )
 
-    logging.info(f"Saving predictions and probabilities for evaluation set ({EVALUATION_SET})")
-    y_preds, y_probas = report_and_eval.get_model_preds_and_probs(
-        model=model, pnet_dataset=test_dataset, who=EVALUATION_SET, model_type=MODEL_TYPE
-    )
+    # Loop through each run and process the corresponding model
+    for run_id in run_ids:
+        logging.info(f"Processing model for run: {run_id}")
 
-    report_and_eval.save_predictions_and_probs(
-        save_dir=SAVE_DIR,
-        who=EVALUATION_SET,
-        y_true=test_dataset.y,
-        y_preds=y_preds,
-        y_probas=y_probas,
-        indices=test_dataset.input_df.index.tolist(),
-    )
+        run_config = fetch_run_config(run_id, args.wandb_project)
+        model_hparams = fetch_model_parameters(run_config, train_dataset)
 
-    logging.info("Process completed.")
+        model = instantiate_model(model_hparams, reactome_network, "BC")  # Task is always BC
+        model = load_model_weights(model, path_to_model=os.path.join(run_config["save_dir"], "model.pt"))
+        model.eval()
+
+        # Evaluate and save predictions
+        for dataset, dataset_name in [(train_dataset, "train"), (test_dataset, run_config["evaluation_set"])]:
+            logging.info(f"Saving predictions and probabilities for {dataset_name} set")
+            y_preds, y_probas = report_and_eval.get_model_preds_and_probs(
+                model=model, pnet_dataset=dataset, who=dataset_name, model_type=run_config["model_type"]
+            )
+            report_and_eval.save_predictions_and_probs(
+                save_dir=run_config["save_dir"],
+                who=dataset_name,
+                y_true=dataset.y,
+                y_preds=y_preds,
+                y_probas=y_probas,
+                indices=dataset.input_df.index.tolist(),
+            )
+
+    logging.info("Finished processing all models in this group.")
     return
+
+
+# def main():
+#     args = parse_arguments()
+
+#     # Fetch run configuration from WandB
+#     logging.info(f"Fetching configuration for run {args.wandb_run_id} from project {args.wandb_project}")
+#     run_config = fetch_run_config(args.wandb_run_id, args.wandb_project)
+
+#     # Extract relevant parameters
+#     logging.info("Extracting relevant parameters from W&B using the run id.")
+#     SAVE_DIR = run_config.get("save_dir")
+#     MODEL_TYPE = run_config.get("model_type")
+#     DATASETS_TO_USE = run_config.get("dataset")
+#     SEED = run_config.get("random_seed")
+#     TRAIN_SET_INDS_F = run_config.get("train_set_indices_f")
+#     EVALUATION_SET_INDS_F = run_config.get("evaluation_set_indices_f")
+#     EVALUATION_SET = run_config.get("evaluation_set")
+#     INPUT_DATA_DIR = run_config.get("input_data_dir")
+
+#     Pnet.set_random_seeds(SEED, turn_off_cuDNN=False)
+
+#     # Taking steps to load the data based on the WANDB run config
+#     logging.info("Loading genetic data, additional data, and target labels.")
+#     config_file = run_config.get("data_config_f")
+#     config = read_config(config_file)
+
+#     for name, info in config["genetic_data"].items():
+#         config["genetic_data"][name]["df"] = pd.read_csv(os.path.join(INPUT_DATA_DIR, info["filename"]), index_col=0)
+#     config["confounder_data"]["df"] = pd.read_csv(
+#         os.path.join(INPUT_DATA_DIR, config["confounder_data"]["filename"]), index_col=0
+#     )
+#     config["target"]["df"] = pd.read_csv(os.path.join(INPUT_DATA_DIR, config["target"]["filename"]), index_col=0)
+
+#     additional = config["confounder_data"]["df"]
+#     y = config["target"]["df"]
+
+#     genetic_data = {key: config["genetic_data"][key]["df"] for key in DATASETS_TO_USE if key in config["genetic_data"]}
+#     logging.info(f"Loaded datasets: {list(genetic_data.keys())}")
+
+#     training_inds = pd.read_csv(TRAIN_SET_INDS_F, index_col="id").index.tolist()
+#     evaluation_inds = pd.read_csv(EVALUATION_SET_INDS_F, index_col="id").index.tolist()
+
+#     logging.info("Loading train and test datasets")
+#     train_dataset, test_dataset = pnet_loader.generate_train_test(
+#         genetic_data=genetic_data,
+#         additional_data=additional,
+#         target=y,
+#         train_inds=training_inds,
+#         test_inds=evaluation_inds,
+#         gene_set=None,
+#     )
+
+#     # Taking steps to load the model
+#     # Step 1: Load Reactome Network
+#     logging.info("Recreating reactome network from train dataset genes.")
+#     reactome_network = ReactomeNetwork.ReactomeNetwork(
+#         train_dataset.get_genes(),
+#         use_embeddings=False,  # Modify if embeddings were used
+#     )
+#     # Step 2: Define Task
+#     task = "BC"  # binary classification. WARNING: hardcoded!
+
+#     # Step 3: Fetch Hyperparameters
+#     model_hparams = fetch_model_parameters(run_config)
+
+#     # Step 4: Instantiate Model
+#     model = instantiate_model(model_hparams, reactome_network, task)
+
+#     # Step 5: Load the pre-trained weights and set to evaluation mode
+#     model = load_model_weights(model, path_to_model=os.path.join(SAVE_DIR, "model.pt"))
+#     model.eval()
+
+#     # Save predictions and probabilities
+#     logging.info(f"Saving predictions and probabilities for training set")
+#     y_preds, y_probas = report_and_eval.get_model_preds_and_probs(
+#         model=model, pnet_dataset=train_dataset, who="train", model_type=MODEL_TYPE
+#     )
+#     report_and_eval.save_predictions_and_probs(
+#         save_dir=SAVE_DIR,
+#         who="train",
+#         y_true=train_dataset.y,
+#         y_preds=y_preds,
+#         y_probas=y_probas,
+#         indices=train_dataset.input_df.index.tolist(),
+#     )
+
+#     logging.info(f"Saving predictions and probabilities for evaluation set ({EVALUATION_SET})")
+#     y_preds, y_probas = report_and_eval.get_model_preds_and_probs(
+#         model=model, pnet_dataset=test_dataset, who=EVALUATION_SET, model_type=MODEL_TYPE
+#     )
+
+#     report_and_eval.save_predictions_and_probs(
+#         save_dir=SAVE_DIR,
+#         who=EVALUATION_SET,
+#         y_true=test_dataset.y,
+#         y_preds=y_preds,
+#         y_probas=y_probas,
+#         indices=test_dataset.input_df.index.tolist(),
+#     )
+
+#     logging.info("Process completed.")
+#     return
 
 
 if __name__ == "__main__":
