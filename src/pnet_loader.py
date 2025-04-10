@@ -39,6 +39,8 @@ class PnetDataset(Dataset):
                 f"input data values expected to be a dict, got" f" {type(genetic_data[inp])}"
             )
         self.genetic_data = genetic_data
+        self.nbr_genetic_input_types = len(genetic_data)
+        self.modalities = list(genetic_data.keys())
         self.target = target
         self.gene_set = gene_set
         self.altered_inputs = []
@@ -66,18 +68,33 @@ class PnetDataset(Dataset):
 
     def get_genes(self):
         """
-        Generate list of genes which are present in all data modalities and in the list of genes to be considered
-        :return: List(str); List of gene names
+        Identifies overlapping genes across all genetic_data modalities and gene_embeddings (if present).
+
+        Parameters:
+        ----------
+        genetic_data : dict
+            A dictionary of pandas DataFrames where each key is a modality name and
+            each value is a DataFrame with samples as rows and genes as columns.
+        gene_embeddings : pd.DataFrame
+            A DataFrame where rows represent genes and columns represent embedding features.
+
+        Returns:
+        -------
+        list
+            A list of unique gene names found in all genetic_data modalities and gene_embeddings.
         """
-        # drop duplicated columns:
-        for inp in self.genetic_data:
-            self.genetic_data[inp] = self.genetic_data[inp].loc[:, ~self.genetic_data[inp].columns.duplicated()].copy()
-        gene_sets = [set(self.genetic_data[inp].columns) for inp in self.genetic_data]
+        # Get sets of unique gene names from each modality
+        gene_sets = [set(df.columns.unique()) for df in self.genetic_data.values()]
+
+        # Additional gene set filter, if specified
         if self.gene_set:
             gene_sets.append(self.gene_set)
-        genes = list(set.intersection(*gene_sets))
-        print("Found {} overlapping genes".format(len(genes)))
-        return genes
+
+        # Find overlapping genes
+        overlapping_genes = set.intersection(*gene_sets)
+
+        print(f"Found {len(overlapping_genes)} overlapping genes")
+        return list(overlapping_genes)
 
     def unpack_input(self):
         """
@@ -96,6 +113,39 @@ class PnetDataset(Dataset):
     def save_indicies(self, path):
         df = pd.DataFrame(data={"indicies": self.inds})
         df.to_csv(path, sep=",", index=False)
+
+    def generate_input_mask(self):
+        """
+        Generate the input mask for connecting genetic data to the model.
+        - The input mask connects the same gene from different
+             modalities to the input node.
+
+        Returns:
+        -------
+        pd.DataFrame
+            Input mask connecting genetic data and embeddings to the model.
+        """
+        expected_row_order = generate_feature_names(
+            genes=self.genes,
+            modalities=list(self.genetic_data.keys()),
+        )
+
+        input_mask = pd.DataFrame(index=expected_row_order, columns=self.genes).fillna(0)
+
+        # Fill connections for modalities
+        for modality in self.genetic_data.keys():
+            for gene in self.genes:
+                row = f"{gene}_{modality}"
+                input_mask.loc[row, gene] = 1
+
+        return input_mask.values
+
+    def generate_input_mask_marc_version(self):
+        # used to live in ReactomeNetwork.py --> ReactomeNetwork class --> get_masks()
+        input_mask = pd.DataFrame(index=len(self.genetic_data) * self.genes, columns=self.genes).fillna(0)
+        for col in input_mask.columns:
+            input_mask[col].loc[col] = 1
+        return input_mask.values
 
 
 # Dataset class that extends PnetDataset to include global gene embeddings.
@@ -123,6 +173,8 @@ class PnetDatasetWithGlobalEmbeddings(PnetDataset):
         Additional features for each sample, indexed by sample names.
     gene_set : list, optional
         A list of genes to include; if None, all overlapping genes across modalities are included.
+    gene_embeddings: pd.DataFrame? or maybe pd.Series?
+        A Series containing the embedding for each gene. Requires gene names that match those used in genetic_data.
 
     Methods:
     -------
@@ -131,12 +183,47 @@ class PnetDatasetWithGlobalEmbeddings(PnetDataset):
     """
 
     def __init__(self, genetic_data, target, indicies, gene_embeddings, additional_data=None, gene_set=None):
-        self.gene_embeddings = gene_embeddings
         super().__init__(genetic_data, target, indicies, additional_data, gene_set)
+        self.gene_embeddings = gene_embeddings
+
+    def get_genes(self):
+        """
+        Identifies overlapping genes across all genetic_data modalities and gene_embeddings (if present).
+
+        Parameters:
+        ----------
+        genetic_data : dict
+            A dictionary of pandas DataFrames where each key is a modality name and
+            each value is a DataFrame with samples as rows and genes as columns.
+        gene_embeddings : pd.DataFrame
+            A DataFrame where rows represent genes and columns represent embedding features.
+
+        Returns:
+        -------
+        list
+            A list of unique gene names found in all genetic_data modalities and gene_embeddings.
+        """
+        # Get sets of unique gene names from each modality
+        gene_sets = [set(df.columns.unique()) for df in self.genetic_data.values()]
+
+        # Add unique set of genes we have embedding data for, if available
+        if hasattr(self, "gene_embeddings") and self.gene_embeddings is not None:
+            gene_sets.append(set(self.gene_embeddings.index.unique()))
+
+        # Additional gene set filter, if specified
+        if self.gene_set:
+            gene_sets.append(self.gene_set)
+
+        # Find overlapping genes with gene_embeddings
+        overlapping_genes = set.intersection(*gene_sets)
+
+        print(f"Found {len(overlapping_genes)} overlapping genes")
+        return list(overlapping_genes)
 
     def unpack_input(self):
         """
         Combines modality-specific genetic data and global gene embeddings into a single DataFrame.
+        Also performs gene filtration, filtering each DF down to self.genes.
 
         The resulting DataFrame includes:
         - Modality-specific features for each gene.
@@ -168,7 +255,95 @@ class PnetDatasetWithGlobalEmbeddings(PnetDataset):
 
         # Combine genetic data and global embeddings
         input_df = pd.concat([input_df, gene_emb_expanded], axis=1)
+
+        # Enforce column ordering
+        expected_feature_order = generate_feature_names(
+            genes=self.genes,
+            modalities=self.modalities,
+            embedding_length=self.gene_embeddings.shape[1],
+        )
+        input_df = input_df[expected_feature_order]
+
         return input_df
+
+    def generate_input_mask(self):
+        """
+        Generate the input mask for connecting genetic data and embeddings to the first layer of the model.
+
+        *Aligned Columns:*
+        The expected_row_order ensures the rows in input_mask match the required structure.
+
+        *Dealing with Data Modalities:*
+        For each gene, we construct a list of rows corresponding to its modalities (e.g., GeneA_mut, GeneA_cnv).
+        Update these rows for the column representing the gene in one operation (input_mask.loc[modality_rows, gene] = 1).
+        - We need a connection (value=1) between each modality's gene and the appropriate node in gene layer of the model.
+        - I.e., if we have 4 modalities, each gene layer node will have four incoming connections.
+
+        *Embedding Connections:*
+        Use np.eye(len(self.genes)) (identity matrix) to efficiently assign diagonal values (1s) for embedding connections.
+
+        Returns:
+        -------
+        np.array
+            Input mask connecting genetic data and embeddings to the first layer of the model.
+        """
+        embedding_length = self.gene_embeddings.shape[1] if self.use_embeddings else 0
+
+        # Generate the expected row order
+        expected_row_order = generate_feature_names(
+            genes=self.genes,
+            modalities=list(self.genetic_data.keys()),
+            embedding_length=embedding_length,
+        )
+
+        # Initialize the input mask with zeros
+        input_mask = pd.DataFrame(0, index=expected_row_order, columns=self.genes)
+
+        # Fill connections for modalities (vectorized column-wise updates)
+        for gene in self.genes:
+            modality_rows = [f"{gene}_{modality}" for modality in self.genetic_data.keys()]
+            input_mask.loc[modality_rows, gene] = 1
+
+        # Fill connections for embeddings (Identity Matrix for Alignment)
+        if self.use_embeddings:
+            for embedding_idx in range(embedding_length):
+                embedding_rows = [f"{gene}_embedding{embedding_idx + 1}" for gene in self.genes]
+                input_mask.loc[embedding_rows, self.genes] = np.eye(len(self.genes))
+
+        return input_mask.values
+
+    def SLOW_generate_input_mask(self):  # TODO: delete when verify new one acts the same
+        """
+        Generate the input mask for connecting genetic data and embeddings to the model.
+
+        Returns:
+        -------
+        pd.DataFrame
+            Input mask connecting genetic data and embeddings to the model.
+        """
+        embedding_length = self.gene_embeddings.shape[1] if self.use_embeddings else 0
+        expected_row_order = generate_feature_names(
+            genes=self.genes,
+            modalities=list(self.genetic_data.keys()),
+            embedding_length=embedding_length,
+        )
+
+        input_mask = pd.DataFrame(index=expected_row_order, columns=self.genes).fillna(0)
+
+        # Fill connections for modalities
+        for modality in self.genetic_data.keys():
+            for gene in self.genes:
+                row = f"{gene}_{modality}"
+                input_mask.loc[row, gene] = 1
+
+        # Fill connections for embeddings
+        if self.use_embeddings:
+            for embedding_idx in range(embedding_length):
+                for gene in self.genes:
+                    row = f"{gene}_embedding{embedding_idx + 1}"
+                    input_mask.loc[row, gene] = 1
+
+        return input_mask.values
 
 
 def get_indicies(genetic_data, target, additional_data=None):
@@ -205,6 +380,8 @@ def generate_train_test(
     test_inds=None,
     collinear_features=0,
     shuffle_labels=False,
+    use_embeddings=False,
+    gene_embeddings=None,
 ):
     """
     Takes all data modalities to be used and generates a train and test DataSet with a given split.
@@ -235,10 +412,34 @@ def generate_train_test(
     else:
         test_inds = inds[int((len(inds) + 1) * (1 - test_split)) :]
         train_inds = inds[: int((len(inds) + 1) * (1 - test_split))]
-    print("Initializing Train Dataset")
-    train_dataset = PnetDataset(genetic_data, target, train_inds, additional_data=additional_data, gene_set=gene_set)
-    print("Initializing Test Dataset")
-    test_dataset = PnetDataset(genetic_data, target, test_inds, additional_data=additional_data, gene_set=gene_set)
+
+    # Making train and test datasets, following the embedding flag
+    if use_embeddings:
+        print("Initializing Train Dataset")
+        train_dataset = PnetDatasetWithGlobalEmbeddings(
+            genetic_data,
+            target,
+            train_inds,
+            gene_embeddings=gene_embeddings,
+            additional_data=additional_data,
+            gene_set=gene_set,
+        )
+        print("Initializing Test Dataset")
+        test_dataset = PnetDatasetWithGlobalEmbeddings(
+            genetic_data,
+            target,
+            test_inds,
+            gene_embeddings=gene_embeddings,
+            additional_data=additional_data,
+            gene_set=gene_set,
+        )
+    else:
+        print("Initializing Train Dataset")
+        train_dataset = PnetDataset(
+            genetic_data, target, train_inds, additional_data=additional_data, gene_set=gene_set
+        )
+        print("Initializing Test Dataset")
+        test_dataset = PnetDataset(genetic_data, target, test_inds, additional_data=additional_data, gene_set=gene_set)
 
     # Positive control: Replace a gene's values with values collinear to the target
     train_dataset, test_dataset = add_collinear(train_dataset, test_dataset, collinear_features)
@@ -307,3 +508,32 @@ def replace_collinear(train_dataset, test_dataset, altered_input_col):
     train_dataset.input_df[altered_input_col] = train_dataset.target
     test_dataset.input_df[altered_input_col] = test_dataset.target
     return train_dataset, test_dataset
+
+
+def generate_feature_names(genes, modalities, embedding_length=0):
+    """
+    Generate a canonical order of feature names based on genes, modalities, and embeddings.
+
+    Parameters:
+    ----------
+    genes : list of str
+        List of gene names.
+    modalities : list of str
+        Names of genetic input modalities (e.g., ['mut', 'cnv']).
+    embedding_length : int
+        Length of the gene embedding vector (default = 0).
+
+    Returns:
+    -------
+    list of str
+        Ordered list of feature names.
+    """
+    feature_names = []
+
+    for gene in genes:
+        # Add modality-specific names
+        feature_names.extend([f"{gene}_{modality}" for modality in modalities])
+        # Add embedding names
+        feature_names.extend([f"{gene}_embedding{i+1}" for i in range(embedding_length)])
+
+    return feature_names

@@ -605,6 +605,8 @@ def evaluate_interpret_save(model, test_dataset, path):
 def run(
     genetic_data,
     target,
+    use_embeddings=False,
+    gene_embeddings=None,
     save_path="../results/model",
     gene_set=None,
     additional_data=None,
@@ -636,18 +638,26 @@ def run(
         task = util.get_task(target)
     target = util.format_target(target, task)
     train_dataset, test_dataset = pnet_loader.generate_train_test(
-        genetic_data,
-        target,
-        gene_set,
-        additional_data,
-        test_split,
-        seed,
-        train_inds,
-        test_inds,
+        genetic_data=genetic_data,
+        target=target,
+        gene_set=gene_set,
+        additional_data=additional_data,
+        test_split=test_split,
+        seed=seed,
+        train_inds=train_inds,
+        test_inds=test_inds,
+        collinear_features=0,
         shuffle_labels=shuffle_labels,
+        use_embeddings=use_embeddings,
+        gene_embeddings=gene_embeddings,
     )
 
-    reactome_network = ReactomeNetwork.ReactomeNetwork(train_dataset.get_genes(), pathways_to_drop=drop_pathways)
+    # TODO: start here 1/10. Should I pass in the gene embedding shape to the network here? gene_embeddings.shape[1]
+    reactome_network = ReactomeNetwork.ReactomeNetwork(
+        train_dataset.get_genes(),
+        pathways_to_drop=drop_pathways,
+        use_embeddings=use_embeddings,
+    )
 
     model = PNET_NN(
         reactome_network=reactome_network,
