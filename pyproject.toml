@@ -1,0 +1,6 @@
+[tool.ruff.lint]
+# Enable isort sorting, in addition to the defaults.
+extend-select = ["I"]
+
+[tool.ruff]
+line-length = 100
