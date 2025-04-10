@@ -3,6 +3,8 @@ src/wandb
 results/
 *.tsv
 *.csv
+*.png
+*.pdf
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
