@@ -11,11 +11,11 @@ import os
 import warnings
 import pytorch_lightning as pl
 import captum
-import ReactomeNetwork
-import GenesetNetwork
-import pnet_loader
-from CustomizedLinear import masked_activation
-import util
+from pnet import ReactomeNetwork
+from pnet import GenesetNetwork
+from pnet import pnet_loader
+from pnet.CustomizedLinear import masked_activation
+from pnet import util
 import wandb
 import random
 import logging
@@ -23,7 +23,15 @@ from scipy.stats import zscore
 
 
 class PNET_Block(nn.Module):
-    def __init__(self, gene_mask, pathway_mask, activation="tanh", batchnorm=False, gene_dropout=None, dropout=None):
+    def __init__(
+        self,
+        gene_mask,
+        pathway_mask,
+        activation="tanh",
+        batchnorm=False,
+        gene_dropout=None,
+        dropout=None,
+    ):
         """
         Pathway level unit of deep network. Taking in connections from the gene level and the previous pathway level.
         Combines the two inputs by addition, applies a batchnorm, non-linearity and dropout before passing it to the
@@ -34,10 +42,14 @@ class PNET_Block(nn.Module):
         """
         super(PNET_Block, self).__init__()
         self.gene_layer = nn.Sequential(
-            *masked_activation(gene_mask, activation=activation, batchnorm=batchnorm, dropout=gene_dropout)
+            *masked_activation(
+                gene_mask, activation=activation, batchnorm=batchnorm, dropout=gene_dropout
+            )
         )
         self.pathway_layer = nn.Sequential(
-            *masked_activation(pathway_mask, activation=activation, batchnorm=batchnorm, dropout=dropout)
+            *masked_activation(
+                pathway_mask, activation=activation, batchnorm=batchnorm, dropout=dropout
+            )
         )
 
     def forward(self, x, genes):
@@ -47,7 +59,9 @@ class PNET_Block(nn.Module):
 
 
 class Regulatory_Block(nn.Module):
-    def __init__(self, regulatory_mask, activation="tanh", batchnorm=False, gene_dropout=None, dropout=None):
+    def __init__(
+        self, regulatory_mask, activation="tanh", batchnorm=False, gene_dropout=None, dropout=None
+    ):
         """
         Regulatory level unit of deep network. Taking in connections from the gene level and the previous pathway level.
         Combines the two inputs by addition, applies a batchnorm, non-linearity and dropout before passing it to the
@@ -57,7 +71,9 @@ class Regulatory_Block(nn.Module):
         """
         super(Regulatory_Block, self).__init__()
         self.regulatory_layer = nn.Sequential(
-            *masked_activation(regulatory_mask, activation=activation, batchnorm=batchnorm, dropout=gene_dropout)
+            *masked_activation(
+                regulatory_mask, activation=activation, batchnorm=batchnorm, dropout=gene_dropout
+            )
         )
 
     def forward(self, x):
@@ -116,9 +132,13 @@ class PNET_NN(pl.LightningModule):
         # set the h1 regularization loss function. We use the lambda function for deferred execution (e.g. computer with the current parameters during each training step)
         if self.h1_alpha is not None:
             if self.h1_regularization_method == "l1":
-                self.h1_regularization_loss = lambda: l1_regularization_fn(self.input_layer.parameters(), self.h1_alpha)
+                self.h1_regularization_loss = lambda: l1_regularization_fn(
+                    self.input_layer.parameters(), self.h1_alpha
+                )
             elif self.h1_regularization_method == "l2":
-                self.h1_regularization_loss = lambda: l2_regularization_fn(self.input_layer.parameters(), self.h1_alpha)
+                self.h1_regularization_loss = lambda: l2_regularization_fn(
+                    self.input_layer.parameters(), self.h1_alpha
+                )
             elif self.h1_regularization_method == "elasticnet":
                 self.h1_regularization_loss = lambda: elasticnet_regularization_fn(
                     self.input_layer.parameters(), self.h1_alpha, self.l1_ratio
@@ -128,11 +148,13 @@ class PNET_NN(pl.LightningModule):
 
         # Fetch connection masks from reactome network:
         if self.regulatory_flag:
-            gene_masks, pathway_masks, input_mask, regulatory_mask = self.reactome_network.get_masks(
-                self.nbr_gene_inputs, regulatory=True
+            gene_masks, pathway_masks, input_mask, regulatory_mask = (
+                self.reactome_network.get_masks(self.nbr_gene_inputs, regulatory=True)
             )
         else:
-            gene_masks, pathway_masks, input_mask = self.reactome_network.get_masks(self.nbr_gene_inputs)
+            gene_masks, pathway_masks, input_mask = self.reactome_network.get_masks(
+                self.nbr_gene_inputs
+            )
         if random_network:
             for gm in gene_masks:
                 util.shuffle_connections(gm)
@@ -150,7 +172,9 @@ class PNET_NN(pl.LightningModule):
         self.preds = nn.ModuleList()
         # Add input layer to aggregate all data modalities
         self.input_layer = nn.Sequential(
-            *masked_activation(input_mask, activation=self.activation, batchnorm=True, dropout=self.input_dropout)
+            *masked_activation(
+                input_mask, activation=self.activation, batchnorm=True, dropout=self.input_dropout
+            )
         )
         # Add regulatory layer if active
         if self.regulatory_flag:
@@ -158,12 +182,19 @@ class PNET_NN(pl.LightningModule):
                 regulatory_mask, activation=self.activation, batchnorm=True, dropout=self.dropout
             )
             self.regulatory_pred = nn.Sequential(
-                *[nn.Linear(in_features=regulatory_mask.shape[0] + self.additional_dims, out_features=self.output_dim)]
+                *[
+                    nn.Linear(
+                        in_features=regulatory_mask.shape[0] + self.additional_dims,
+                        out_features=self.output_dim,
+                    )
+                ]
             )
             self.num_pred_heads += 1
         # Add first layer separately:
         self.first_gene_layer = nn.Sequential(
-            *masked_activation(gene_masks[0], activation=self.activation, batchnorm=True, dropout=self.gene_dropout)
+            *masked_activation(
+                gene_masks[0], activation=self.activation, batchnorm=True, dropout=self.gene_dropout
+            )
         )
         # Add blocks and prediction heads for each pathway level:
         for i in range(0, len(gene_masks) - 1):
@@ -180,7 +211,8 @@ class PNET_NN(pl.LightningModule):
                 nn.Sequential(
                     *[
                         nn.Linear(
-                            in_features=pathway_masks[i].shape[0] + self.additional_dims, out_features=self.output_dim
+                            in_features=pathway_masks[i].shape[0] + self.additional_dims,
+                            out_features=self.output_dim,
                         )
                     ]
                 )
@@ -190,14 +222,17 @@ class PNET_NN(pl.LightningModule):
             nn.Sequential(
                 *[
                     nn.Linear(
-                        in_features=pathway_masks[len(gene_masks) - 1].shape[0] + self.additional_dims,
+                        in_features=pathway_masks[len(gene_masks) - 1].shape[0]
+                        + self.additional_dims,
                         out_features=self.output_dim,
                     )
                 ]
             )
         )
         # Weighting of the different prediction layers:
-        self.attn = nn.Linear(in_features=(self.num_pred_heads) * self.output_dim, out_features=self.output_dim)
+        self.attn = nn.Linear(
+            in_features=(self.num_pred_heads) * self.output_dim, out_features=self.output_dim
+        )
 
     def forward(self, x, additional_data):
         x = self.input_layer(x)
@@ -246,7 +281,8 @@ class PNET_NN(pl.LightningModule):
 
         # 2. Layer-Weighted Loss
         layer_weighted_loss = sum(
-            self.aux_loss_weights[i] * F.cross_entropy(y_hat, y, reduction="mean") for i, y_hat in enumerate(y_hats)
+            self.aux_loss_weights[i] * F.cross_entropy(y_hat, y, reduction="mean")
+            for i, y_hat in enumerate(y_hats)
         )
 
         # 3. Regularization of the First Hidden Layer
@@ -311,14 +347,19 @@ class PNET_NN(pl.LightningModule):
             (test_dataset.x, test_dataset.additional), target=target_class
         )
         gene_importances = pd.DataFrame(
-            gene_importances.detach().numpy(), index=test_dataset.input_df.index, columns=test_dataset.input_df.columns
+            gene_importances.detach().numpy(),
+            index=test_dataset.input_df.index,
+            columns=test_dataset.input_df.columns,
         )
         additional_importances = pd.DataFrame(
             additional_importances.detach().numpy(),
             index=test_dataset.additional_data.index,
             columns=test_dataset.additional_data.columns,
         )
-        self.gene_importances, self.additional_importances = gene_importances, additional_importances
+        self.gene_importances, self.additional_importances = (
+            gene_importances,
+            additional_importances,
+        )
         self.interpret_flag = False
         return self.gene_importances, self.additional_importances
 
@@ -329,37 +370,52 @@ class PNET_NN(pl.LightningModule):
             ig_attr = ig.attribute((test_dataset.x, test_dataset.additional), n_steps=50)
         else:
             ig_attr, delta = ig.attribute(
-                (test_dataset.x, test_dataset.additional), return_convergence_delta=True, target=target_class
+                (test_dataset.x, test_dataset.additional),
+                return_convergence_delta=True,
+                target=target_class,
             )
         gene_importances, additional_importances = ig_attr
         gene_importances = pd.DataFrame(
-            gene_importances.detach().numpy(), index=test_dataset.input_df.index, columns=test_dataset.input_df.columns
+            gene_importances.detach().numpy(),
+            index=test_dataset.input_df.index,
+            columns=test_dataset.input_df.columns,
         )
         additional_importances = pd.DataFrame(
             additional_importances.detach().numpy(),
             index=test_dataset.additional_data.index,
             columns=test_dataset.additional_data.columns,
         )
-        self.gene_importances, self.additional_importances = gene_importances, additional_importances
+        self.gene_importances, self.additional_importances = (
+            gene_importances,
+            additional_importances,
+        )
         self.interpret_flag = False
         return self.gene_importances, self.additional_importances
 
     def layerwise_importance(self, test_dataset, target_class=0):
         self.interpret_flag = True
         layer_importance_scores = []
-        cond = captum.attr.LayerConductance(self, self.first_gene_layer)  # ReLU output of masked layer at each level
+        cond = captum.attr.LayerConductance(
+            self, self.first_gene_layer
+        )  # ReLU output of masked layer at each level
         cond_vals = cond.attribute((test_dataset.x, test_dataset.additional), target=target_class)
         cols = [
             self.reactome_network.pathway_encoding.set_index("ID").loc[col]["pathway"]
             for col in self.reactome_network.pathway_layers[0].index
         ]
-        cond_vals_genomic = pd.DataFrame(cond_vals.detach().numpy(), columns=cols, index=test_dataset.input_df.index)
+        cond_vals_genomic = pd.DataFrame(
+            cond_vals.detach().numpy(), columns=cols, index=test_dataset.input_df.index
+        )
         pathway_imp_by_target = cond_vals_genomic
         layer_importance_scores.append(pathway_imp_by_target)
 
         for i, level in enumerate(self.layers):
-            cond = captum.attr.LayerConductance(self, level.pathway_layer)  # ReLU output of masked layer at each level
-            cond_vals = cond.attribute((test_dataset.x, test_dataset.additional), target=target_class)
+            cond = captum.attr.LayerConductance(
+                self, level.pathway_layer
+            )  # ReLU output of masked layer at each level
+            cond_vals = cond.attribute(
+                (test_dataset.x, test_dataset.additional), target=target_class
+            )
             cols = [
                 self.reactome_network.pathway_encoding.set_index("ID").loc[col]["pathway"]
                 for col in self.reactome_network.pathway_layers[i].columns
@@ -377,12 +433,16 @@ class PNET_NN(pl.LightningModule):
         layer_importance_scores = []
         for i, level in enumerate(self.layers):
             act = captum.attr.LayerActivation(self, level.pathway_layer)
-            act_vals = act.attribute((test_dataset.x, test_dataset.additional), attribute_to_layer_input=True)
+            act_vals = act.attribute(
+                (test_dataset.x, test_dataset.additional), attribute_to_layer_input=True
+            )
             cols = [
                 self.reactome_network.pathway_encoding.set_index("ID").loc[col]["pathway"]
                 for col in self.reactome_network.pathway_layers[i].index
             ]
-            act_vals_genomic = pd.DataFrame(act_vals.detach().numpy(), columns=cols, index=test_dataset.input_df.index)
+            act_vals_genomic = pd.DataFrame(
+                act_vals.detach().numpy(), columns=cols, index=test_dataset.input_df.index
+            )
             pathway_imp_by_target = act_vals_genomic
             layer_importance_scores.append(pathway_imp_by_target)
         self.interpret_flag = False
@@ -393,7 +453,9 @@ class PNET_NN(pl.LightningModule):
         layer_importance_scores = []
         for i, level in enumerate(self.layers):
             neuron_cond = captum.attr.NeuronConductance(self, level.pathway_layer)
-            neuron_cond_att = neuron_cond.attribute((test_dataset.x, test_dataset.additional), target=target_class)
+            neuron_cond_att = neuron_cond.attribute(
+                (test_dataset.x, test_dataset.additional), target=target_class
+            )
 
         self.interpret_flag = False
 
@@ -402,7 +464,9 @@ class PNET_NN(pl.LightningModule):
         cond = captum.attr.LayerConductance(self, self.input_layer)
         cond_vals = cond.attribute((test_dataset.x, test_dataset.additional), target=target_class)
         cols = self.reactome_network.gene_list
-        cond_vals_genomic = pd.DataFrame(cond_vals.detach().numpy(), columns=cols, index=test_dataset.input_df.index)
+        cond_vals_genomic = pd.DataFrame(
+            cond_vals.detach().numpy(), columns=cols, index=test_dataset.input_df.index
+        )
         gene_imp_by_target = cond_vals_genomic
         self.interpret_flag = False
         return gene_imp_by_target
@@ -412,13 +476,17 @@ class PNET_NN(pl.LightningModule):
         cond = captum.attr.LayerConductance(self, self.regulatory_layer.regulatory_layer)
         cond_vals = cond.attribute((test_dataset.x, test_dataset.additional), target=target_class)
         cols = self.reactome_network.gene_list
-        cond_vals_genomic = pd.DataFrame(cond_vals.detach().numpy(), columns=cols, index=test_dataset.input_df.index)
+        cond_vals_genomic = pd.DataFrame(
+            cond_vals.detach().numpy(), columns=cols, index=test_dataset.input_df.index
+        )
         gene_imp_by_target = cond_vals_genomic
         self.interpret_flag = False
         return gene_imp_by_target
 
     def interpret(self, test_dataset, plot=False):
-        gene_feature_importances, additional_feature_importances = self.integrated_gradients(test_dataset)
+        gene_feature_importances, additional_feature_importances = self.integrated_gradients(
+            test_dataset
+        )
         gene_importances = self.gene_importance(test_dataset)
         # layer_importance_scores = self.layerwise_importance(test_dataset)
         if self.regulatory_flag == True:
@@ -449,7 +517,9 @@ class PNET_NN(pl.LightningModule):
             )
 
     def interpret(self, test_dataset, plot=False):
-        gene_feature_importances, additional_feature_importances = self.integrated_gradients(test_dataset)
+        gene_feature_importances, additional_feature_importances = self.integrated_gradients(
+            test_dataset
+        )
         gene_importances = self.gene_importance(test_dataset)
         # layer_importance_scores = self.layerwise_importance(test_dataset)
         layer_importance_scores = self.layerwise_importance(test_dataset)
@@ -460,7 +530,12 @@ class PNET_NN(pl.LightningModule):
             gene_importances[list(gene_order[-20:])].plot(kind="box", vert=False)
             plt.savefig(plot + "/imp_genes.pdf")
         self.interpret_flag = False
-        return gene_feature_importances, additional_feature_importances, gene_importances, layer_importance_scores
+        return (
+            gene_feature_importances,
+            additional_feature_importances,
+            gene_importances,
+            layer_importance_scores,
+        )
 
 
 def get_torch_device():
@@ -480,7 +555,11 @@ def fit(model, dataloader, optimizer):
     running_loss = 0.0
     for batch in dataloader:
         gene_data, additional_data, y = batch
-        gene_data, additional_data, y = gene_data.to(device), additional_data.to(device), y.to(device)
+        gene_data, additional_data, y = (
+            gene_data.to(device),
+            additional_data.to(device),
+            y.to(device),
+        )
         optimizer.zero_grad()
         y_hat, y_hats = model(gene_data, additional_data)
         loss = custom_loss_calc(model, y, y_hat, y_hats)
@@ -497,7 +576,11 @@ def validate(model, dataloader):
     running_loss = 0.0
     for batch in dataloader:
         gene_data, additional_data, y = batch
-        gene_data, additional_data, y = gene_data.to(device), additional_data.to(device), y.to(device)
+        gene_data, additional_data, y = (
+            gene_data.to(device),
+            additional_data.to(device),
+            y.to(device),
+        )
         y_hat, y_hats = model(gene_data, additional_data)
         loss = custom_loss_calc(model, y, y_hat, y_hats)
         running_loss += loss.item()
@@ -506,7 +589,9 @@ def validate(model, dataloader):
     return loss
 
 
-def custom_loss_calc(model, y, y_hat, y_hats):  # TODO: wip. Need to validate equivalence with old method.
+def custom_loss_calc(
+    model, y, y_hat, y_hats
+):  # TODO: wip. Need to validate equivalence with old method.
     """
     Calculate the custom loss for a model, incorporating weighted loss (if applicable), auxiliary losses, and regularization of h1 if applicable.
 
@@ -525,10 +610,15 @@ def custom_loss_calc(model, y, y_hat, y_hats):  # TODO: wip. Need to validate eq
         weight = model.loss_weight.to(device)
         weight_ = weight[y.data.view(-1).long()].view_as(y)
         main_loss = (model.loss_fn(y_hat, y) * weight_).mean()
-        aux_losses = sum((model.loss_fn(y_h, y) * weight_).mean() * w for y_h, w in zip(y_hats, model.aux_loss_weights))
+        aux_losses = sum(
+            (model.loss_fn(y_h, y) * weight_).mean() * w
+            for y_h, w in zip(y_hats, model.aux_loss_weights)
+        )
     else:
         main_loss = model.loss_fn(y_hat, y)
-        aux_losses = sum(model.loss_fn(y_h, y) * w for y_h, w in zip(y_hats, model.aux_loss_weights))
+        aux_losses = sum(
+            model.loss_fn(y_h, y) * w for y_h, w in zip(y_hats, model.aux_loss_weights)
+        )
 
     return main_loss + aux_losses + model.h1_regularization_loss()
 
@@ -592,9 +682,12 @@ def evaluate_interpret_save(model, test_dataset, path):
         torch.save(auc_prc, path + "/AUC_PRC.pt")
         torch.save(f1_score, path + "/F1.pt")
 
-    gene_feature_importances, additional_feature_importances, gene_importances, layer_importance_scores = (
-        model.interpret(test_dataset)
-    )
+    (
+        gene_feature_importances,
+        additional_feature_importances,
+        gene_importances,
+        layer_importance_scores,
+    ) = model.interpret(test_dataset)
     gene_feature_importances.to_csv(path + "/gene_feature_importances.csv")
     additional_feature_importances.to_csv(path + "/additional_feature_importances.csv")
     gene_importances.to_csv(path + "/gene_importances.csv")
@@ -680,7 +773,15 @@ def run(
     )
     train_loader, test_loader = pnet_loader.to_dataloader(train_dataset, test_dataset, batch_size)
     model, train_scores, test_scores = train(
-        model, train_loader, test_loader, save_path, lr, weight_decay, epochs, verbose, early_stopping
+        model,
+        train_loader,
+        test_loader,
+        save_path,
+        lr,
+        weight_decay,
+        epochs,
+        verbose,
+        early_stopping,
     )
 
     return model, train_scores, test_scores, train_dataset, test_dataset
@@ -739,7 +840,15 @@ def run_regulatory(
     )
     train_loader, test_loader = pnet_loader.to_dataloader(train_dataset, test_dataset, batch_size)
     model, train_scores, test_scores = train(
-        model, train_loader, test_loader, save_path, lr, weight_decay, epochs, verbose, early_stopping
+        model,
+        train_loader,
+        test_loader,
+        save_path,
+        lr,
+        weight_decay,
+        epochs,
+        verbose,
+        early_stopping,
     )
     return model, train_scores, test_scores, train_dataset, test_dataset
 
@@ -780,7 +889,11 @@ def run_geneset(
     )
 
     geneset_network = GenesetNetwork.GenesetNetwork(
-        train_dataset.get_genes(), path=geneset_path, num_layers=num_layers, sparsity=sparsity, trim=0
+        train_dataset.get_genes(),
+        path=geneset_path,
+        num_layers=num_layers,
+        sparsity=sparsity,
+        trim=0,
     )
 
     model = PNET_NN(
@@ -801,7 +914,15 @@ def run_geneset(
     )
     train_loader, test_loader = pnet_loader.to_dataloader(train_dataset, test_dataset, batch_size)
     model, train_scores, test_scores = train(
-        model, train_loader, test_loader, save_path, lr, weight_decay, epochs, verbose, early_stopping
+        model,
+        train_loader,
+        test_loader,
+        save_path,
+        lr,
+        weight_decay,
+        epochs,
+        verbose,
+        early_stopping,
     )
 
     return model, train_scores, test_scores, train_dataset, test_dataset
@@ -848,7 +969,9 @@ def interpret(model, x, additional, plots=False, savedir=""):
     # Neurons feature importance
     layer_importance_scores = []
     for level in model.layers:
-        cond = LayerConductance(model, level.activation)  # ReLU output of masked layer at each level
+        cond = LayerConductance(
+            model, level.activation
+        )  # ReLU output of masked layer at each level
         cond_vals = cond.attribute((genomic_input, clinical_input))
         cond_vals_genomic = cond_vals.detach().numpy()
         layer_importance_scores.append(cond_vals_genomic)
@@ -856,7 +979,9 @@ def interpret(model, x, additional, plots=False, savedir=""):
     if plots:
         for i, layer in enumerate(feature_importance["layerwise_neurons_genomic"]):
             pathway_names = model.reactome_network.pathway_encoding.set_index("ID")
-            pathway_names = pathway_names.loc[model.reactome_network.pathway_layers[i + 1].index]["pathway"]
+            pathway_names = pathway_names.loc[model.reactome_network.pathway_layers[i + 1].index][
+                "pathway"
+            ]
             visualize_importances(
                 pathway_names,
                 np.mean(layer, axis=0),
@@ -869,7 +994,11 @@ def interpret(model, x, additional, plots=False, savedir=""):
 
 
 def visualize_importances(
-    feature_names, importances, title="Average Feature Importances", plot=True, axis_title="Features"
+    feature_names,
+    importances,
+    title="Average Feature Importances",
+    plot=True,
+    axis_title="Features",
 ):
     x_pos = np.arange(len(feature_names))
     if plot:

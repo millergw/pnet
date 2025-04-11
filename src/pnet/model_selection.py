@@ -10,11 +10,13 @@ Outputs:
 trained model, train and test datasets (the X component??? P-NET returns a P-NET data object...)
 """
 
-import Pnet
-from sklearn import metrics
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-import wandb
 import logging
+
+from sklearn import metrics
+from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
+
+import wandb
+from pnet import Pnet
 
 logging.basicConfig(
     filename="model_selection.log",

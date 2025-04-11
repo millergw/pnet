@@ -5,12 +5,12 @@ Specifically, working with germline VCFs for the prostate cancer dataset.
 Author: Gwen Miller <gwen_miller@g.harvard.edu>
 """
 
-import numpy as np
-import pandas as pd
 import logging
 import os
-import matplotlib
+
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 
 logging.basicConfig(
     format="%(asctime)s %(levelname)-8s %(message)s",
@@ -101,15 +101,9 @@ def find_mapping(list_a, list_b, reverse_dict=False):
             if a in b:
                 mapping[a] = b
                 break
-    logging.debug(
-        f"Found matches for a total of {len(mapping)} out of {len(list_a)} items."
-    )
-    if (
-        reverse_dict is True
-    ):  # TODO: need to check what happens if the values are not unique
-        logging.info(
-            "Reversing the dict so the superstrings are the keys and the substrings are the values"
-        )
+    logging.debug(f"Found matches for a total of {len(mapping)} out of {len(list_a)} items.")
+    if reverse_dict is True:  # TODO: need to check what happens if the values are not unique
+        logging.info("Reversing the dict so the superstrings are the keys and the substrings are the values")
         logging.info(
             f"len(set(mapping.values())) == len(mapping.values()): {len(set(mapping.values())) == len(mapping.values())}"
         )
@@ -119,9 +113,7 @@ def find_mapping(list_a, list_b, reverse_dict=False):
 
 
 def find_overlapping_columns(*dataframes):
-    logging.info(
-        f"Finding overlapping columns in the given list of {len(dataframes)} datasets"
-    )
+    logging.info(f"Finding overlapping columns in the given list of {len(dataframes)} datasets")
     logging.debug("Ensure that at least two DataFrames are provided")
     if len(dataframes) < 2:
         raise ValueError("At least two DataFrames are required for finding overlaps.")
@@ -175,9 +167,7 @@ def restrict_to_overlapping_indices(*dataframes):
         f"The number of overlapping indices among the {len(dataframes)} dataframes is {len(overlapping_indices)}."
     )
 
-    logging.info(
-        f"Restricting each DataFrame to the {len(overlapping_indices)} overlapping indices"
-    )
+    logging.info(f"Restricting each DataFrame to the {len(overlapping_indices)} overlapping indices")
     restricted_dataframes = []
     for df in dataframes:
         logging.debug(f"Shape before: {df.shape}")
@@ -300,9 +290,7 @@ def impute_cols_with_a_constant(df, new_col_names, fill=0):
     """
     new_col_names = list(new_col_names)
     logging.info(f"Shape before {fill}-imputation: {df.shape}")
-    logging.info(
-        f"We have {len(new_col_names)} features to add as a column of all {fill}'s"
-    )
+    logging.info(f"We have {len(new_col_names)} features to add as a column of all {fill}'s")
     df = df.reindex(columns=df.columns.tolist() + new_col_names).fillna(fill)
     logging.info(f"Shape after {fill}-imputation: {df.shape}")
     return df
@@ -317,12 +305,8 @@ def impute_cols_with_a_constant_v2(new_col_names, fill=0, *dataframes):
     imputed_dataframes = []
     for df in dataframes:
         logging.info(f"Shape before {fill}-imputation: {df.shape}")
-        logging.info(
-            f"We have {len(new_col_names)} features to add as a column of all {fill}'s"
-        )
-        imputed_df = df.reindex(columns=df.columns.tolist() + new_col_names).fillna(
-            fill
-        )
+        logging.info(f"We have {len(new_col_names)} features to add as a column of all {fill}'s")
+        imputed_df = df.reindex(columns=df.columns.tolist() + new_col_names).fillna(fill)
         logging.info(f"Shape after {fill}-imputation: {imputed_df.shape}")
         imputed_dataframes.append(imputed_df)
     return dataframes
@@ -349,9 +333,7 @@ def convert_values(input_value, source, target):
     if len(source) != len(target):
         raise ValueError("Input lists must have the same length.")
 
-    logging.info(
-        "Converting input by creating a dictionary to map values from 'source' to 'target'"
-    )
+    logging.info("Converting input by creating a dictionary to map values from 'source' to 'target'")
     value_mapping = dict(zip(source, target))
 
     logging.debug("Initialize lists to track converted and unconverted items")
@@ -378,9 +360,7 @@ def convert_values(input_value, source, target):
 
     logging.debug("{len(converted_items)} converted: {converted_items}")
     if len(unconverted_items) > 0:
-        logging.warn(
-            "{len(unconverted_items)} couldn't be converted: {unconverted_items}"
-        )
+        logging.warn("{len(unconverted_items)} couldn't be converted: {unconverted_items}")
     return converted_items
 
 
@@ -401,9 +381,7 @@ def convert_values_old(input_value, source, target):
     print(f"Converted List: {converted_list}")
     # > Converted List: ['red', 'yellow', 'kiwi']
     """
-    logging.info(
-        "Converting input by creating a dictionary to map values from 'source' to 'target'"
-    )
+    logging.info("Converting input by creating a dictionary to map values from 'source' to 'target'")
     value_mapping = dict(zip(source, target))
 
     if isinstance(input_value, list):

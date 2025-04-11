@@ -1,9 +1,11 @@
-import data_manipulation  # general data manipulations
-import vcf_manipulation  # for manipulating the germline VCFs, filtering, etc
-import pandas as pd
-import numpy as np
-import logging
+import logging  # noqa: I001
 import os
+
+import pandas as pd
+
+from pnet import data_manipulation  # general data manipulations
+from pnet import vcf_manipulation  # for manipulating the germline VCFs, filtering, etc
+
 
 logging.basicConfig(
     format="%(asctime)s %(levelname)-8s %(message)s",
@@ -101,9 +103,9 @@ def load_sample_metadata_and_target(id_map_f, sample_metadata_f):
 
 
 def extract_target(df, id_to_use="Tumor_Sample_Barcode", target_col="is_met"):
-    assert (
-        id_to_use in df.columns.tolist()
-    ), "The ID you wanted to use isn't in the DF columns"  # e.g. "Tumor_Sample_Barcode", "vcf_germline_ids"
+    assert id_to_use in df.columns.tolist(), (
+        "The ID you wanted to use isn't in the DF columns"
+    )  # e.g. "Tumor_Sample_Barcode", "vcf_germline_ids"
     logging.info("Generating the target DF (target column '{target_col}' indexed by '{id}')")
     target = df.set_index(id_to_use).loc[:, [target_col]]
     logging.debug(target.head())
@@ -163,9 +165,9 @@ def load_additional_data(
 ):
     logging.info(f"Load additional data from {additional_f}")
     sample_metadata = load_sample_metadata_with_all_germline_ids(additional_f, id_map_f)
-    assert (
-        id_to_use in sample_metadata.columns.tolist()
-    ), f"The ID you wanted to use as index ({id_to_use}) isn't in the DF columns, which are \n{sample_metadata.columns.tolist()}"  # e.g. "Tumor_Sample_Barcode", "vcf_germline_ids"
+    assert id_to_use in sample_metadata.columns.tolist(), (
+        f"The ID you wanted to use as index ({id_to_use}) isn't in the DF columns, which are \n{sample_metadata.columns.tolist()}"
+    )  # e.g. "Tumor_Sample_Barcode", "vcf_germline_ids"
     additional_data = sample_metadata.set_index(id_to_use).loc[:, cols_to_include]
     return additional_data
 

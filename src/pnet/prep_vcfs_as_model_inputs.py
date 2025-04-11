@@ -2,7 +2,7 @@
 # Author: Gwen Miller <gwen_miller@g.harvard.edu>
 
 """
-Here, we prepare our inputs so they can be easily loaded into P-NET (and other models) without requiring any additional work beyond creating train/test/val splits. 
+Here, we prepare our inputs so they can be easily loaded into P-NET (and other models) without requiring any additional work beyond creating train/test/val splits.
 Specifically, we take care of issues including:
 1. Harmonizing the IDs
 2. Performing imputation as necessary (to keep non-overlapping genes)
@@ -17,22 +17,21 @@ Data modalities:
 1. germline mut (subset to a small number of genes).
 
 Our somatic data has information for many more genes compared to the germline data. We will need to either:
-1. impute zeros for the excluded germline genes, or 
+1. impute zeros for the excluded germline genes, or
 2. subset the somatic datasets down to the ones that overlap with the germline data.
 
 
 We will be subsetting to the ~950 samples that we have matched somatic and germline data for.
 """
 
-import os
-import logging
 import argparse
+import logging
+import os
+
 import wandb
 
 # Gwen's scripts
-import data_manipulation
-import prostate_data_loaders
-import report_and_eval
+from pnet import data_manipulation, prostate_data_loaders, report_and_eval
 
 
 def configure_logging(log_file="run_pnet.log"):
