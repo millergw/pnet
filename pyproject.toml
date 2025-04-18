@@ -1,6 +1,27 @@
-[tool.ruff.lint]
-# Enable isort sorting, in addition to the defaults.
-extend-select = ["I"]
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
 
-[tool.ruff]
-line-length = 100
+[project]
+name = "pnet"
+version = "0.1.0"
+dependencies = []
+
+[tool.setuptools]
+packages = ["pnet"]
+package-dir = {"" = "src"}
+
+[tool.ruff.lint]
+# Enable isort sorting of package imports, in addition to the defaults.
+extend-select = [
+    # Pyflakes
+    "F",
+    # pyupgrade
+    "UP",
+    # flake8-bugbear
+    "B",
+    # flake8-simplify
+    "SIM",
+    # isort
+    "I",
+]
