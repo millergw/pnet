@@ -147,7 +147,7 @@ def parse_arguments():
 
 
 def read_config(filename):
-    with open(filename, "r") as f:
+    with open(filename) as f:
         config = yaml.safe_load(f)
     return config
 

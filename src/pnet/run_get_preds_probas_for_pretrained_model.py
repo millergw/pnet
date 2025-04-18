@@ -1,7 +1,7 @@
-import os
 import subprocess
-import wandb
 from collections import defaultdict
+
+import wandb
 
 
 def fetch_grouped_runs(project_name, sweep_id, model_type):

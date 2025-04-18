@@ -1,6 +1,7 @@
+import math
+
 import torch
 import torch.nn as nn
-import math
 
 
 class CustomizedLinear(nn.Module):
@@ -16,7 +17,7 @@ class CustomizedLinear(nn.Module):
         bias [bool]:
             flg of bias.
         """
-        super(CustomizedLinear, self).__init__()
+        super().__init__()
         self.input_features, self.output_features = mask.shape
         # Transpose mask to account for multiplication with weights
         if isinstance(mask, torch.Tensor):
@@ -30,7 +31,7 @@ class CustomizedLinear(nn.Module):
         if bias:
             self.bias = nn.Parameter(torch.Tensor(self.output_features))
         else:
-            self.register_parameter('bias', None)
+            self.register_parameter("bias", None)
 
         # Initialization of parameters
         nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))  # weight init
@@ -43,7 +44,7 @@ class CustomizedLinear(nn.Module):
         Initialization of parameters, sampled from U[-sqrt(nm), sqrt(nm)] where n and m are the dimensions of the
         weight matrix. The weights are then multiplied with the adjacency mask to set non-existing edges to zero
         """
-        stdv = 1. / math.sqrt(self.weight.size(1))
+        stdv = 1.0 / math.sqrt(self.weight.size(1))
         self.weight.data.uniform_(-stdv, stdv)
         if self.bias is not None:
             self.bias.data.uniform_(-stdv, stdv)
@@ -54,10 +55,10 @@ class CustomizedLinear(nn.Module):
         """
         Same ase reset_params but only allowing for positive weights, sampling from U[0, 2*sqrt(nm)]
         """
-        stdv = 1. / math.sqrt(self.weight.size(1))
-        self.weight.data.uniform_(0, 2*stdv)
+        stdv = 1.0 / math.sqrt(self.weight.size(1))
+        self.weight.data.uniform_(0, 2 * stdv)
         if self.bias is not None:
-            self.bias.data.uniform_(0, 2*stdv)
+            self.bias.data.uniform_(0, 2 * stdv)
 
         self.weight.data = self.weight.data * self.mask
 
@@ -65,9 +66,7 @@ class CustomizedLinear(nn.Module):
         return CustomizedLinearFunction.apply(input, self.weight, self.bias, self.mask)
 
     def extra_repr(self):
-        return 'input_features={}, output_features={}, bias={}'.format(
-            self.input_features, self.output_features, self.bias is not None
-        )
+        return f"input_features={self.input_features}, output_features={self.output_features}, bias={self.bias is not None}"
 
 
 class CustomizedLinearFunction(torch.autograd.Function):
@@ -75,6 +74,7 @@ class CustomizedLinearFunction(torch.autograd.Function):
     Customized autograd function to run backward pass in pytorch
     :return: gradients with respect to input, weight, bias, mask
     """
+
     @staticmethod
     def forward(ctx, input, weight, bias=None, mask=None):
         if mask is not None:
@@ -124,11 +124,13 @@ def masked_activation(mask, pos_weights=False, activation=None, batchnorm=False,
     """
     module = []
     feature_in, feature_out = mask.shape
-    activation_pool = {'relu': nn.ReLU(),
-                       'leakyrelu': nn.LeakyReLU(0.1),
-                       'tanh': nn.Tanh(),
-                       'sigmoid': nn.Sigmoid(),
-                       'softplus': nn.Softplus()}
+    activation_pool = {
+        "relu": nn.ReLU(),
+        "leakyrelu": nn.LeakyReLU(0.1),
+        "tanh": nn.Tanh(),
+        "sigmoid": nn.Sigmoid(),
+        "softplus": nn.Softplus(),
+    }
 
     module.append(CustomizedLinear(mask, pos_weights=pos_weights))
 
@@ -137,7 +139,7 @@ def masked_activation(mask, pos_weights=False, activation=None, batchnorm=False,
 
     if activation is not None:
         module.append(activation_pool[activation])
-        
+
     if dropout is not None:
         module.append(nn.Dropout(dropout))
 

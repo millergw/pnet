@@ -1,20 +1,18 @@
-import os
-import seaborn as sns
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import pickle
 import logging
-logging.basicConfig(
-            format='%(asctime)s %(levelname)-8s %(message)s',
-            level=logging.INFO,
-            datefmt='%Y-%m-%d %H:%M:%S')
+import os
+import pickle
+
+import numpy as np
+import pandas as pd
+
+logging.basicConfig(format="%(asctime)s %(levelname)-8s %(message)s", level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S")
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 # Set your W&B API key or configure it in your environment
 import wandb
+
 wandb.login()
 
 
@@ -30,7 +28,7 @@ def get_summary_metric_from_wandb(entity, project_name, metric, run_group=None):
     # Initialize the W&B API
     api = wandb.Api()
     # Retrieve runs from the specified project and run group
-    runs = api.runs(entity+"/"+project_name, filters={"group": run_group})
+    runs = api.runs(entity + "/" + project_name, filters={"group": run_group})
 
     # Print summary data for each run in the group
     metrics = []
@@ -43,14 +41,14 @@ def get_summary_metric_from_wandb(entity, project_name, metric, run_group=None):
 def get_sklearn_feature_imps(dir):
     # TODO: read in from W&B?
     # Read gene_imps from a Pickle file (format: len 20 list --> pandas DFs, samples x genes?)
-    with open(os.path.join(dir, 'gene_imps.pkl'), 'rb') as file:
+    with open(os.path.join(dir, "gene_imps.pkl"), "rb") as file:
         feature_imps = pickle.load(file)
     return feature_imps
 
 
 def get_pnet_gene_imps(dir):
     # Read gene_imps from a Pickle file (format: len 20 list --> pandas DFs, samples x genes?)
-    with open(os.path.join(dir, 'gene_imps.pkl'), 'rb') as file:
+    with open(os.path.join(dir, "gene_imps.pkl"), "rb") as file:
         gene_imps = pickle.load(file)
 
     # # Read layerwise_imps from a Pickle file (format: len 20 list --> len 5 list --> pandas DF, samples x features)
@@ -68,8 +66,8 @@ def make_pnet_gene_ranking_df(gene_imps, index):
     For a given sample (aka index / patient), pull the gene rankings from each of the runs (dfs) in gene_imps.
 
     Inputs:
-    - gene_imps: a list of DFs. 
-        len(gene_imps) = number of model runs. 
+    - gene_imps: a list of DFs.
+        len(gene_imps) = number of model runs.
         gene_imps.shape = patients x genes.
     """
     logging.debug("Formatting data")
@@ -87,9 +85,9 @@ def make_pnet_gene_ranking_df(gene_imps, index):
 def make_patient_gene_imp_df(gene_imps):
     """
     Input:
-    - gene_imps: a list of DFs. 
-        len(gene_imps) = number of model runs. 
-        gene_imps.shape = patients x genes. 
+    - gene_imps: a list of DFs.
+        len(gene_imps) = number of model runs.
+        gene_imps.shape = patients x genes.
     Output:
     - rankings_df: a list of DFs.
         len(rankings_df) = number of patients.
@@ -115,7 +113,7 @@ def make_patient_gene_imp_df(gene_imps):
     print("\nResulting DataFrames:")
     for idx, df in enumerate(make_gene_imp_df(gene_imps)):
         print(f"Row {idx + 1}:\n{df}\n")
-"""
+    """
     # Concatenate the DataFrames along axis=1
     concatenated_df = pd.concat(gene_imps, axis=1)
 
@@ -124,16 +122,19 @@ def make_patient_gene_imp_df(gene_imps):
     num_runs = len(gene_imps)
 
     # Reshape each row into a DataFrame with shape (n_runs, genes)
-    result_list = [pd.DataFrame(np.array(row).reshape(num_runs, num_genes), columns=gene_imps[0].columns) for _, row in concatenated_df.iterrows()]
+    result_list = [
+        pd.DataFrame(np.array(row).reshape(num_runs, num_genes), columns=gene_imps[0].columns)
+        for _, row in concatenated_df.iterrows()
+    ]
     return result_list
 
 
 def make_perpatient_rankings_dfs(gene_imps):
     """
     Input:
-    - gene_imps: a list of DFs. 
-        len(gene_imps) = number of model runs. 
-        gene_imps.shape = patients x genes. 
+    - gene_imps: a list of DFs.
+        len(gene_imps) = number of model runs.
+        gene_imps.shape = patients x genes.
     Output:
     - result_list: a list of DFs.
         len(result_list) = number of patients.
@@ -154,16 +155,12 @@ def calc_perpatient_stability_metric(gene_imps, n_top_genes=50):
     row_averages = [df.mean(axis=0) for df in rankings_dfs]
     row_stdevs = [df.std(axis=0) for df in rankings_dfs]
     summary_dfs = [
-        pd.DataFrame({
-            'Average Across Rows': i,
-            'Std Dev Across Rows': j
-        })
-        for (i,j) in zip(row_averages, row_stdevs)
+        pd.DataFrame({"Average Across Rows": i, "Std Dev Across Rows": j}) for (i, j) in zip(row_averages, row_stdevs)
     ]
-    summary_dfs = [df.sort_values(by='Average Across Rows', ascending=True) for df in summary_dfs]
+    summary_dfs = [df.sort_values(by="Average Across Rows", ascending=True) for df in summary_dfs]
 
-    filtered_to_imp = [df[df['Average Across Rows']<n_top_genes] for df in summary_dfs]
-    stability_metrics = [df['Std Dev Across Rows'].median() for df in filtered_to_imp]
+    filtered_to_imp = [df[df["Average Across Rows"] < n_top_genes] for df in summary_dfs]
+    stability_metrics = [df["Std Dev Across Rows"].median() for df in filtered_to_imp]
     return stability_metrics
 
 
@@ -187,26 +184,23 @@ def calc_stability_metric_on_runs_by_generank_df(rankings_df, n_top_genes=50):
     std_across_rows = rankings_df.std(axis=0)
 
     # Create a new DataFrame with averages and standard deviations
-    summary_df = pd.DataFrame({
-        'Average Across Rows': average_across_rows,
-        'Std Dev Across Rows': std_across_rows
-    })
-    summary_df = summary_df.sort_values(by='Average Across Rows', ascending=True)
+    summary_df = pd.DataFrame({"Average Across Rows": average_across_rows, "Std Dev Across Rows": std_across_rows})
+    summary_df = summary_df.sort_values(by="Average Across Rows", ascending=True)
 
-    filtered_to_imp = summary_df[summary_df['Average Across Rows']<n_top_genes]
-    stability_metric = filtered_to_imp['Std Dev Across Rows'].median()
+    filtered_to_imp = summary_df[summary_df["Average Across Rows"] < n_top_genes]
+    stability_metric = filtered_to_imp["Std Dev Across Rows"].median()
     return stability_metric
 
 
 def calc_model_stability(imp_lists, n_top_genes=50):
     """
     Input:
-    - imp_lists: a list of pd.Series. 
-        len(imp_lists) = number of model runs. 
+    - imp_lists: a list of pd.Series.
+        len(imp_lists) = number of model runs.
         imp_lists[0] = feature importance data for the first model run
             pd.Series of length number features (e.g. 3x num_genes if using mut, amp, and del data)
             values are feature importance
-    """    
+    """
     logging.warn("TODO: check functionality. Is the rankings DF correct?")
     logging.info("Convert to rank and sort")
     rankings_df = pd.DataFrame(imp_lists).apply(lambda row: row.abs().rank(ascending=False), axis=1)

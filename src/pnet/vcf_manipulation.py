@@ -23,36 +23,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger()
 
-mutations_dict = {
-    "3'Flank": "Silent",
-    "5'Flank": "Silent",
-    "5'UTR": "Silent",
-    "3'UTR": "Silent",
-    "IGR": "Silent",
-    "Intron": "Silent",
-    "lincRNA": "Silent",
-    "RNA": "Silent",
-    "Silent": "Silent",
-    "non_coding_transcript_exon": "Silent",
-    "upstream_gene": "Silent",
-    "Splice_Region": "Silent",
-    "Targeted_Region": "Silent",
-    "Splice_Site": "LOF",
-    "Nonsense_Mutation": "LOF",
-    "Frame_Shift_Del": "LOF",
-    "Frame_Shift_Ins": "LOF",
-    "Stop_Codon_Del": "LOF",
-    "Stop_Codon_Ins": "LOF",
-    "Nonstop_Mutation": "LOF",
-    "Start_Codon_Del": "LOF",
-    "Missense_Mutation": "Other_nonsynonymous",
-    "In_Frame_Del": "Other_nonsynonymous",
-    "In_Frame_Ins": "Other_nonsynonymous",
-    "De_novo_Start_InFrame": "Other_nonsynonymous",
-    "De_novo_Start_OutOfFrame": "Other_nonsynonymous",
-    "Start_Codon_Ins": "Other_nonsynonymous",
-}
-
 
 ##############################
 ## working with VCFs (loading, filtering, selecting relevant columns)
@@ -89,7 +59,7 @@ def get_non_sample_col_names_from_VCF(df):
 def get_sample_names_from_VCF(df):
     logging.info("Extracting the sample IDs from the column names")
     sample_ids = [col.split(".GT")[0] for col in df.columns if col.endswith(".GT")]
-    logging.info("We found {} sample_ids".format(len(sample_ids)))
+    logging.info(f"We found {len(sample_ids)} sample_ids")
     return sample_ids
 
 
@@ -142,7 +112,7 @@ def get_variant_metadata_from_VCF(df):
 
     # use filter to keep the selected columns
     variant_metadata = df.loc[:, variant_annotation_cols]
-    logging.debug(f"Head of the variant metadata DF:")
+    logging.debug("Head of the variant metadata DF:")
     logging.debug(variant_metadata.head())
     return variant_metadata
 
@@ -315,7 +285,7 @@ def filter_annotated_vcf_by_gene_list_chunking(
         return f"none of the genes were found in the DF: {gene_list}"
 
     logging.debug("shapes of the filtered chunks:")
-    for i, l in enumerate(list_of_dfs):
+    for _i, l in enumerate(list_of_dfs):
         logging.debug(l.shape)
 
     df = pd.concat(list_of_dfs)
@@ -325,46 +295,6 @@ def filter_annotated_vcf_by_gene_list_chunking(
     logging.info(f"\n4. Saving the filtered DF to {save_filtered_df_path}")
     df.to_csv(save_filtered_df_path, index=False, sep="\t")
     return df
-
-
-def remove_variants_too_common_in_dataset(vcf_f, pathogenic_vars_only=True, remove_vars_above_threshold=0.05):
-    """
-    TODO: currently non-functional
-    """
-    subset_id = data_manipulation.filename(vcf_f)  # use the filename as the subset identifier
-    logging.info(f"working on gene subset {subset_id}\nfile {vcf_f}")
-    vcf = pd.read_csv(vcf_f, sep="\t", low_memory=False).set_index("Uploaded_variation")
-
-    if pathogenic_vars_only:
-        logging.info("restricting to pathogenic variants only")
-        vcf = subset_to_pathogenic_only(vcf)
-        vcf = vcf.set_index("Uploaded_variation")
-
-    logging.debug("restricting to just the genotype columns (the ones that end in .GT) and binarizing...")
-    vcf = vcf.filter(regex=".GT$").applymap(data_manipulation.binarize)
-    vcf.columns = vcf.columns.map(lambda x: x[:-3] if x.endswith(".GT") else x)
-    logging.info(f"vcf shape: {vcf.shape}")
-
-    N = vcf.shape[1]
-    n_variants_per_sample = vcf.sum(axis=0)
-    n_samples_per_variant = vcf.sum(axis=1)
-    vcf["n_samples_with_variant"] = n_samples_per_variant
-    vcf["percent_of_samples_with_variant"] = n_samples_per_variant / N
-    vcf = data_manipulation.relocate(vcf, ["n_samples_with_variant", "percent_of_samples_with_variant"])
-
-    remove_df = (
-        vcf[vcf["percent_of_samples_with_variant"] >= remove_vars_above_threshold]
-        .sort_values(by=["n_samples_with_variant"], ascending=False)
-        .copy()
-    )
-    logging.info(f"here are the {len(remove_df)} variants that we filter out")
-    print(remove_df)
-
-    logging.debug("only keeping the variants under the threshold")
-    vcf = vcf[vcf["percent_of_samples_with_variant"] < remove_vars_above_threshold].copy()
-
-    logging.info("returning the filtered VCF and the DF of variants we removed")
-    return vcf, remove_df
 
 
 def subset_to_pathogenic_only(df, gene_list=None, save_f=None, remove_vars_above_threshold=0.05):
@@ -411,7 +341,7 @@ def make_binary_genotype_mat_from_VCF(df):
     binary_genotype = df.filter(regex=".GT$").applymap(data_manipulation.binarize)
     logging.debug("removing the .GT from the sample names")
     binary_genotype.columns = binary_genotype.columns.map(lambda x: x[:-3] if x.endswith(".GT") else x)
-    logging.debug(f"Head of the binary genotype matrix:")
+    logging.debug("Head of the binary genotype matrix:")
     logging.debug(binary_genotype.head())
     return binary_genotype
 
@@ -440,7 +370,7 @@ def convert_binary_var_mat_to_gene_level_mat(binary_genotypes, variant_metadata,
     gene_burden_rows = []
     genes = []
     for gene in set(variant_metadata.SYMBOL.tolist()):
-        curr_var_data = variant_metadata[variant_metadata.SYMBOL == gene]
+        curr_var_data = variant_metadata[gene == variant_metadata.SYMBOL]
         curr_vars = curr_var_data.index.tolist()
         logging.debug(f"for gene {gene} we have {len(curr_vars)} variants: {curr_vars}")
         logging.debug(f"binary_genotypes.loc[curr_vars,:]: {binary_genotypes.loc[curr_vars, :].shape}")

@@ -129,15 +129,6 @@ def load_somatic_cnv(somatic_cnv_f):
     return cnv
 
 
-# def load_somatic_response(response_f): # TODO: this function might be made redundant by the get_target function.
-#     # TODO: this isn't the optimal way; I think I should start from one of my metadata matrices
-#     logging.info(f"load somatic response data from {response_f}")
-#     response = data_manipulation.load_df_verbose(response_f)
-#     response.rename(columns={'id': "Tumor_Sample_Barcode"}, inplace=True)
-#     response.set_index('Tumor_Sample_Barcode', inplace=True)
-#     return response
-
-
 def load_germline_mut(germline_vars_f):
     logging.info(f"Loading germline mutation data from {germline_vars_f}")
     germline_var_df = pd.read_csv(germline_vars_f, low_memory=False, sep="\t")
@@ -185,7 +176,7 @@ def load_germline_metadata(
     # create binary "is_met_col" column
     metadata[is_met_col] = metadata[met_col].map({"Metastatic": 1, "Primary": 0})
     metadata = metadata.rename(columns={id_col: "germline_id", met_col: "disease_status"})
-    logging.debug(f"Head of the metadata DF:")
+    logging.debug("Head of the metadata DF:")
     logging.debug(metadata.head())
     return metadata
 
@@ -266,19 +257,6 @@ def format_mutation_data(mut_df, mut_binary=True):
     return mut_df
 
 
-def format_additional_data(
-    df,
-):  # TODO: write! Might need to re-code categorical variables, etc. Though, maybe good to do this separately/earlier and save down the results?
-    # if confounder_title != "(10 PCs as confounder)":
-    #     logging.info("One hot encoding any categorical variables")
-    #     print(f"Input shape before 1-hot: {X.shape}")
-    #     categorical_cols = ["inferred_ancestry_PCA_UMAP"]
-    #     numeric_cols = [i for i in X.columns.tolist() if i not in categorical_cols]
-    #     X = utils.encode_cat_vars_in_df(X, numeric_cols, categorical_cols)
-    #     print(f"Input shape after 1-hot: {X.shape}")
-    return df
-
-
 def format_germline_mutation_data(df):
     """
     Args:
@@ -304,7 +282,6 @@ def format_germline_mutation_data(df):
 def harmonize_prostate_ids(
     datasets_w_germline_ids, datasets_w_somatic_ids, convert_ids_to="somatic"
 ):  # TODO: how should I handle IDs that can't be converted? Right now, I just replace with NAs and warn. But I think I should drop NA rows.
-    # TODO: edit third parameter so that it takes either "somatic", "germline", or None
     """
     Args:
     - germline_datasets: any DFs that use the vcf_germline_ids ID as their index
@@ -377,7 +354,7 @@ def convert_somatic_id_to_germline_id(somaticIDs, GERMLINE_DATADIR="../../pnet_g
     return germlineIDs
 
 
-def zero_impute_somatic_datasets(germline_datasets, somatic_datasets, zero_impute_somatic=False):  # TODO: test
+def zero_impute_somatic_datasets(germline_datasets, somatic_datasets, zero_impute_somatic=False):
     if zero_impute_somatic is True:
         logging.info(f"Starting process of zero-imputing the {len(somatic_datasets)} somatic dataset(s)")
         germline_features = set(data_manipulation.find_overlapping_columns(*germline_datasets))
@@ -422,7 +399,7 @@ def format_cnv_data(
     mut_binary=False,
     selected_genes=None,
 ):
-    logging.info("formatting {}".format(data_type))
+    logging.info(f"formatting {data_type}")
     x = x.copy()
 
     if data_type == "cnv":

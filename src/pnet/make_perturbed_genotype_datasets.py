@@ -16,12 +16,14 @@ What this script will do:
    - Perturbation strength (1%, 10%, or 100% of selected sample rows per feature set to 1)
 """
 
-import os
 import logging
+import os
+from itertools import product
+
 import numpy as np
 import pandas as pd
+
 import wandb
-from itertools import product
 
 # === LOGGING SETUP === #
 logging.basicConfig(
@@ -69,7 +71,7 @@ summary_csv_path = os.path.join(SAVE_DIR, "perturbation_summary.csv")
 SEED = 42
 np.random.seed(SEED)
 
-logging.info("Setting random seed to {}".format(SEED))
+logging.info(f"Setting random seed to {SEED}")
 
 # === LOAD DATA === #
 logger.info(f"Loading original dataset from: {DATA_DIR}")
@@ -137,7 +139,7 @@ for frac_sample, n_features, strength in product(fractions_samples, n_features_l
         )
         df_copy.loc[rows_to_perturb, gene] = 1
 
-    suffix = f"samplePrcnt{int(frac_sample*100)}_features{n_features}_strengthPrcnt{int(strength*100)}"
+    suffix = f"samplePrcnt{int(frac_sample * 100)}_features{n_features}_strengthPrcnt{int(strength * 100)}"
     out_path = os.path.join(SAVE_DIR, f"somatic_mut_{suffix}.csv")
     df_copy.to_csv(out_path)
 

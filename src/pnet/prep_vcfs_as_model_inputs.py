@@ -149,7 +149,7 @@ def load_data(somatic_datadir, germline_datadir):
 
 
 def harmonize_ids(somatic_datasets, germline_datasets, additional, y, convert_ids_to):
-    logging.info("Harmonizing IDs (switching to {} IDs)".format(convert_ids_to))
+    logging.info(f"Harmonizing IDs (switching to {convert_ids_to} IDs)")
 
     germline_list = list(germline_datasets.values())
     somatic_list = list(somatic_datasets.values())
@@ -177,9 +177,7 @@ def restrict_to_paired_samples(somatic_datasets, germline_datasets, additional, 
 
 def zero_impute_datasets(germline_datasets, somatic_datasets, zero_impute_germline, zero_impute_somatic):
     logging.info(
-        "Zero-imputing columns (genes) as defined by user (impute germline: {}, impute somatic: {})".format(
-            zero_impute_germline, zero_impute_somatic
-        )
+        f"Zero-imputing columns (genes) as defined by user (impute germline: {zero_impute_germline}, impute somatic: {zero_impute_somatic})"
     )
     germline_list = list(germline_datasets.values())
     somatic_list = list(somatic_datasets.values())
@@ -219,8 +217,8 @@ def process_data(somatic_datasets, germline_datasets, additional, y, args):
     if args.use_only_paired:
         # restrict DFs to overlapping samples
         datasets = restrict_to_paired_samples(somatic_datasets, germline_datasets, additional, y)
-        somatic_datasets = {k: datasets[k] for k in somatic_datasets.keys()}
-        germline_datasets = {k: datasets[k] for k in germline_datasets.keys()}
+        somatic_datasets = {k: datasets[k] for k in somatic_datasets}
+        germline_datasets = {k: datasets[k] for k in germline_datasets}
         additional, y = datasets["additional"], datasets["y"]
 
     # perform zero-imputation according to args
@@ -232,8 +230,8 @@ def process_data(somatic_datasets, germline_datasets, additional, y, args):
     )
     # restrict DFs to genes in common, and also restrict to TCGA prostate genes
     all_datasets = restrict_to_common_genes(somatic_datasets, germline_datasets)
-    somatic_datasets = {k: all_datasets[k] for k in somatic_datasets.keys()}
-    germline_datasets = {k: all_datasets[k] for k in germline_datasets.keys()}
+    somatic_datasets = {k: all_datasets[k] for k in somatic_datasets}
+    germline_datasets = {k: all_datasets[k] for k in germline_datasets}
 
     # return the updated DFs
     return somatic_datasets, germline_datasets, additional, y

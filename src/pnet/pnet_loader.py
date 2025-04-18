@@ -1,8 +1,9 @@
-import torch
-from torch.utils.data import Dataset, DataLoader
-import pandas as pd
 import random
+
 import numpy as np
+import pandas as pd
+import torch
+from torch.utils.data import DataLoader, Dataset
 
 
 # DataLoader object for pytorch. Constructing single loader for all data input modalities.
@@ -36,7 +37,7 @@ class PnetDataset(Dataset):
         for inp in genetic_data:
             assert isinstance(inp, str), f"input data keys expected to be str, got {type(inp)}"
             assert isinstance(genetic_data[inp], pd.DataFrame), (
-                f"input data values expected to be a dict, got" f" {type(genetic_data[inp])}"
+                f"input data values expected to be a dict, got {type(genetic_data[inp])}"
             )
         self.genetic_data = genetic_data
         self.nbr_genetic_input_types = len(genetic_data)
@@ -107,7 +108,7 @@ class PnetDataset(Dataset):
             temp_df = self.genetic_data[inp][self.genes]
             temp_df.columns = temp_df.columns + "_" + inp
             input_df = input_df.join(temp_df, how="inner", rsuffix="_" + inp)
-        print("generated input DataFrame of size {}".format(input_df.shape))
+        print(f"generated input DataFrame of size {input_df.shape}")
         return input_df.loc[self.inds]
 
     def save_indicies(self, path):
@@ -133,7 +134,7 @@ class PnetDataset(Dataset):
         input_mask = pd.DataFrame(index=expected_row_order, columns=self.genes).fillna(0)
 
         # Fill connections for modalities
-        for modality in self.genetic_data.keys():
+        for modality in self.genetic_data:
             for gene in self.genes:
                 row = f"{gene}_{modality}"
                 input_mask.loc[row, gene] = 1
@@ -250,7 +251,7 @@ class PnetDatasetWithGlobalEmbeddings(PnetDataset):
                 len(input_df.index), -1
             ),
             index=input_df.index,
-            columns=[f"{gene}_embedding{i+1}" for gene in self.genes for i in range(self.gene_embeddings.shape[1])],
+            columns=[f"{gene}_embedding{i + 1}" for gene in self.genes for i in range(self.gene_embeddings.shape[1])],
         )
 
         # Combine genetic data and global embeddings
@@ -301,7 +302,7 @@ class PnetDatasetWithGlobalEmbeddings(PnetDataset):
 
         # Fill connections for modalities (vectorized column-wise updates)
         for gene in self.genes:
-            modality_rows = [f"{gene}_{modality}" for modality in self.genetic_data.keys()]
+            modality_rows = [f"{gene}_{modality}" for modality in self.genetic_data]
             input_mask.loc[modality_rows, gene] = 1
 
         # Fill connections for embeddings (Identity Matrix for Alignment)
@@ -331,7 +332,7 @@ class PnetDatasetWithGlobalEmbeddings(PnetDataset):
         input_mask = pd.DataFrame(index=expected_row_order, columns=self.genes).fillna(0)
 
         # Fill connections for modalities
-        for modality in self.genetic_data.keys():
+        for modality in self.genetic_data:
             for gene in self.genes:
                 row = f"{gene}_{modality}"
                 input_mask.loc[row, gene] = 1
@@ -365,7 +366,7 @@ def get_indicies(genetic_data, target, additional_data=None):
     if additional_data is not None:
         ind_sets.append(additional_data.index.drop_duplicates(keep=False))
     inds = list(set.intersection(*ind_sets))
-    print("Found {} overlapping indicies".format(len(inds)))
+    print(f"Found {len(inds)} overlapping indicies")
     return inds
 
 
@@ -396,7 +397,7 @@ def generate_train_test(
     :param seed: int; Random seed to be used for train/test splits.
     :return:
     """
-    print("Given {} Input modalities".format(len(genetic_data)))
+    print(f"Given {len(genetic_data)} Input modalities")
     inds = get_indicies(genetic_data, target, additional_data)
     random.seed(seed)
     random.shuffle(inds)
@@ -494,7 +495,7 @@ def add_collinear(train_dataset, test_dataset, collinear_features):
 
 
 def shuffle_data_labels(dataset):
-    print("shuffling {} labels".format(dataset.target.shape[0]))
+    print(f"shuffling {dataset.target.shape[0]} labels")
     target_copy = dataset.target.copy()
     target_copy[target_copy.columns[0]] = dataset.target.sample(frac=1).reset_index(drop=True).values
     dataset.target = target_copy
@@ -504,7 +505,7 @@ def shuffle_data_labels(dataset):
 def replace_collinear(train_dataset, test_dataset, altered_input_col):
     train_dataset.altered_inputs.append(altered_input_col)
     test_dataset.altered_inputs.append(altered_input_col)
-    print("Replace input of: {} with collinear feature.".format(altered_input_col))
+    print(f"Replace input of: {altered_input_col} with collinear feature.")
     train_dataset.input_df[altered_input_col] = train_dataset.target
     test_dataset.input_df[altered_input_col] = test_dataset.target
     return train_dataset, test_dataset
@@ -534,6 +535,6 @@ def generate_feature_names(genes, modalities, embedding_length=0):
         # Add modality-specific names
         feature_names.extend([f"{gene}_{modality}" for modality in modalities])
         # Add embedding names
-        feature_names.extend([f"{gene}_embedding{i+1}" for i in range(embedding_length)])
+        feature_names.extend([f"{gene}_embedding{i + 1}" for i in range(embedding_length)])
 
     return feature_names

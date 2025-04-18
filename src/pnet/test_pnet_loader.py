@@ -1,12 +1,12 @@
 # Unit tests for pnet_loader.py classes and functions
 
+import os
 import unittest
-from unittest.mock import MagicMock
+
 import pandas as pd
 import torch
-import os
-import pnet_loader
-import report_and_eval
+
+from pnet import pnet_loader, report_and_eval
 
 
 class TestGenerateFeatureNames(unittest.TestCase):
@@ -134,9 +134,7 @@ class TestPnetDatasetClass(unittest.TestCase):
         complex_dataset.gene_embeddings = self.complex_gene_embeddings
         mask1_complex = complex_dataset.generate_input_mask()
         print(mask1_complex)
-        mask2_complex = (
-            complex_dataset.generate_input_mask_marc_version()
-        )  # currently, this function produces mask in different row order. This type of silent error is why I really want to make row order controlled.
+        mask2_complex = complex_dataset.generate_input_mask_marc_version()  # currently, this function produces mask in different row order. This type of silent error is why I really want to make row order controlled.
         print(mask2_complex)
 
         # Print the complex case mask for inspection

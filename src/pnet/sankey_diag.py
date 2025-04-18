@@ -32,7 +32,7 @@ class SankeyDiag:
     def load_multiple_runs(self, results_dir, runs):
         all_importances = pd.DataFrame()
         for i in range(runs):
-            run_i_imps = self.load_importance_scores("{}/run{}/".format(results_dir, i))
+            run_i_imps = self.load_importance_scores(f"{results_dir}/run{i}/")
             run_i_imps["Run"] = i
             all_importances = pd.concat([all_importances, run_i_imps])
         return all_importances
@@ -44,7 +44,7 @@ class SankeyDiag:
         all_imps = pd.DataFrame(columns=["Importance", "Layer"])
         for l in layer_list:
             df_imps = pd.DataFrame(columns=["Importance", "Layer"])
-            imps = pd.read_csv("{}{}_importances.csv".format(results_dir, l)).set_index("Unnamed: 0")
+            imps = pd.read_csv(f"{results_dir}{l}_importances.csv").set_index("Unnamed: 0")
             df_imps = (
                 imps.reset_index()
                 .melt(id_vars="Unnamed: 0", var_name="Gene/Pathway", value_name="Importance")
@@ -59,7 +59,7 @@ class SankeyDiag:
             response = target.columns[0]
             imps_w_target = self.all_imps.merge(target, left_on="Sample", right_index=True)
             grouped_imps = imps_w_target.groupby(["Gene/Pathway", "Layer", response]).mean().diff().abs()
-            grouped_imps = grouped_imps.query("{} == 1".format(response)).reset_index()
+            grouped_imps = grouped_imps.query(f"{response} == 1").reset_index()
         else:
             grouped_imps = pd.DataFrame(self.all_imps.groupby(["Gene/Pathway", "Layer"]).mean().abs().reset_index())
         return grouped_imps
@@ -103,7 +103,7 @@ class SankeyDiag:
         self.add_to_num_encoding("Residual_1")
 
         # Add Genes that have inflow from specific features
-        for ind, elem in gene_feature_imps.nlargest(10, "Importance").iterrows():
+        for _ind, elem in gene_feature_imps.nlargest(10, "Importance").iterrows():
             source = elem["Gene/Pathway"]
             target = elem["Gene/Pathway"].split("_")[0]
             value = elem["Importance"]
@@ -119,7 +119,7 @@ class SankeyDiag:
                 self.append_links(self.numerical_encoding[source], self.numerical_encoding[target], value, GENE_COLOR)
 
         # Add Genes that have only inflow from Residual
-        for ind, elem in gene_imps.nlargest(10, "Importance").iterrows():
+        for _ind, elem in gene_imps.nlargest(10, "Importance").iterrows():
             target = elem["Gene/Pathway"]
             source = "Residual_0"
             value = gene_feature_imps.nsmallest(gene_feature_imps.shape[0] - 10, "Importance")["Importance"].sum() / 10
@@ -141,11 +141,11 @@ class SankeyDiag:
         self.add_to_num_encoding("Residual_2")
 
         # Add Pathways that have inflow from specific Genes
-        for g_ind, g_elem in gene_imps.nlargest(10, "Importance").iterrows():
+        for _g_ind, g_elem in gene_imps.nlargest(10, "Importance").iterrows():
             source = g_elem["Gene/Pathway"]
             value = g_elem["Importance"]
             targets = set()
-            for p_ind, p_elem in pathway_imps.nlargest(10, "Importance").iterrows():
+            for _p_ind, p_elem in pathway_imps.nlargest(10, "Importance").iterrows():
                 target = p_elem["Gene/Pathway"]
 
                 self.add_to_num_encoding(source)
@@ -160,7 +160,7 @@ class SankeyDiag:
                 self.append_links(self.numerical_encoding[source], self.numerical_encoding[target], value, col)
 
         # Add Pathways that have only inflow from Residual
-        for p_ind, p_elem in pathway_imps.nlargest(10, "Importance").iterrows():
+        for _p_ind, p_elem in pathway_imps.nlargest(10, "Importance").iterrows():
             target = p_elem["Gene/Pathway"]
             source = "Residual_1"
             value = gene_imps.nsmallest(gene_imps.shape[0] - 10, "Importance")["Importance"].sum() / 10
@@ -176,18 +176,18 @@ class SankeyDiag:
         self.append_links(self.numerical_encoding[source], self.numerical_encoding[target], value, RES_COLOR)
 
     def add_pathway_layer_to_sankey(self, num_layer):
-        pathway_higher_imps = self.grouped_imps[self.grouped_imps["Layer"] == "layer_{}".format(num_layer)].copy()
+        pathway_higher_imps = self.grouped_imps[self.grouped_imps["Layer"] == f"layer_{num_layer}"].copy()
         # pathway_higher_imps = normalize_imps(pathway_higher_imps)
-        pathway_lower_imps = self.grouped_imps[self.grouped_imps["Layer"] == "layer_{}".format(num_layer - 1)].copy()
+        pathway_lower_imps = self.grouped_imps[self.grouped_imps["Layer"] == f"layer_{num_layer - 1}"].copy()
         # pathway_lower_imps = normalize_imps(pathway_lower_imps)
-        self.add_to_num_encoding("Residual_{}".format(num_layer + 2))
+        self.add_to_num_encoding(f"Residual_{num_layer + 2}")
 
         # Add Pathways that have inflow from specific Pathways
-        for p0_ind, p0_elem in pathway_lower_imps.nlargest(10, "Importance").iterrows():
+        for _p0_ind, p0_elem in pathway_lower_imps.nlargest(10, "Importance").iterrows():
             source = p0_elem["Gene/Pathway"]
             value = p0_elem["Importance"]
             targets = set()
-            for p1_ind, p1_elem in pathway_higher_imps.nlargest(10, "Importance").iterrows():
+            for _p1_ind, p1_elem in pathway_higher_imps.nlargest(10, "Importance").iterrows():
                 target = p1_elem["Gene/Pathway"]
 
                 self.add_to_num_encoding(source)
@@ -197,15 +197,15 @@ class SankeyDiag:
                 if target in list(self.rn.hierarchy[self.rn.hierarchy["target"] == source]["source"]):
                     targets.add(target)
             if len(targets) == 0:
-                targets.add("Residual_{}".format(num_layer + 2))
+                targets.add(f"Residual_{num_layer + 2}")
             for target in targets:
-                col = RES_COLOR if target == "Residual_{}".format(num_layer + 2) else PATHWAY_COLOR
+                col = RES_COLOR if target == f"Residual_{num_layer + 2}" else PATHWAY_COLOR
                 self.append_links(self.numerical_encoding[source], self.numerical_encoding[target], value, col)
 
         # Add Pathways that have only inflow from Residual
-        for p_ind, p_elem in pathway_higher_imps.nlargest(10, "Importance").iterrows():
+        for _p_ind, p_elem in pathway_higher_imps.nlargest(10, "Importance").iterrows():
             target = p_elem["Gene/Pathway"]
-            source = "Residual_{}".format(num_layer + 1)
+            source = f"Residual_{num_layer + 1}"
             value = (
                 pathway_lower_imps.nsmallest(pathway_lower_imps.shape[0] - 10, "Importance")["Importance"].sum() / 10
             )
@@ -214,8 +214,8 @@ class SankeyDiag:
                 self.append_links(self.numerical_encoding[source], self.numerical_encoding[target], value, RES_COLOR)
 
         # Add Residual connection
-        target = "Residual_{}".format(num_layer + 2)
-        source = "Residual_{}".format(num_layer + 1)
+        target = f"Residual_{num_layer + 2}"
+        source = f"Residual_{num_layer + 1}"
         value = pathway_lower_imps.nsmallest(pathway_lower_imps.shape[0] - 10, "Importance")["Importance"].sum() / 10
         self.append_links(self.numerical_encoding[source], self.numerical_encoding[target], value, RES_COLOR)
 
@@ -225,7 +225,7 @@ class SankeyDiag:
         self.add_to_num_encoding("Output")
 
         # Add Pathways that have inflow from specific Genes
-        for p_ind, p_elem in pathway_imps.nlargest(10, "Importance").iterrows():
+        for _p_ind, p_elem in pathway_imps.nlargest(10, "Importance").iterrows():
             source = p_elem["Gene/Pathway"]
             value = p_elem["Importance"]
             target = "Output"
@@ -241,7 +241,7 @@ class SankeyDiag:
         short_names.set_index("Full name", inplace=True)
         short_name_dict = short_names["Short name (Eli)"].to_dict()
         for i in range(7):
-            short_name_dict["Residual_{}".format(i)] = "Residual"
+            short_name_dict[f"Residual_{i}"] = "Residual"
         for elem in self.numerical_encoding:
             short_name_dict[elem] = short_name_dict.get(elem, elem)
         return short_name_dict
@@ -254,7 +254,7 @@ class SankeyDiag:
                         pad=15,
                         thickness=10,
                         line=dict(color="black", width=0.5),
-                        label=list([self.short_name_dict[x] for x in self.numerical_encoding.keys()]),
+                        label=list([self.short_name_dict[x] for x in self.numerical_encoding]),
                         color="silver",
                     ),
                     link=self.links,

@@ -1,5 +1,4 @@
 import networkx as nx
-import numpy as np
 import pandas as pd
 
 
@@ -141,7 +140,7 @@ class ReactomeNetwork:
         for i, layer in enumerate(self.gene_layers):
             if pathway in layer.columns:
                 return i
-        raise KeyError("Pathway {} not found".format(pathway))
+        raise KeyError(f"Pathway {pathway} not found")
 
     def get_children_gene_inputs(self, level, pathway):
         """

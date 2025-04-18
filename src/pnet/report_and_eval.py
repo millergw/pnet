@@ -5,30 +5,28 @@ Functions for
 Author: Gwen Miller <gwen_miller@g.harvard.edu>
 """
 
+import json
+import logging
+import os
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import logging
-import matplotlib
-import matplotlib.pyplot as plt
-import wandb
-import os
-import json
 
 # Importing packages related to model performance
 # from sklearn.metrics import plot_confusion_matrix
 from sklearn.metrics import (
-    confusion_matrix,  # expects true_labels, predicted_labels
-    classification_report,  # expects true_labels, predicted_labels
-    roc_auc_score,  # expects true_labels, predicted_probs
-    average_precision_score,  # aka the AUC-PRC score
-    f1_score,
-    precision_score,
-    recall_score,
-    balanced_accuracy_score,
     accuracy_score,
+    average_precision_score,  # aka the AUC-PRC score
+    balanced_accuracy_score,
+    classification_report,  # expects true_labels, predicted_labels
+    confusion_matrix,  # expects true_labels, predicted_labels
+    f1_score,
     mean_squared_error,
+    roc_auc_score,  # expects true_labels, predicted_probs
 )
-import torch
+
+import wandb
 
 logging.basicConfig(format="%(asctime)s %(levelname)-8s %(message)s", level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S")
 logger = logging.getLogger()
@@ -323,7 +321,7 @@ def get_pnet_feature_importances(model, who, pnet_dataset, save_dir=None):
         additional_feature_importances.to_csv(os.path.join(save_dir, f"{who}_additional_feature_importances.csv"))
         gene_importances.to_csv(os.path.join(save_dir, f"{who}_gene_importances.csv"))
         for i, layer in enumerate(layer_importance_scores):
-            layer.to_csv(os.path.join(save_dir, "{}_layer_{}_importances.csv".format(who, i)))
+            layer.to_csv(os.path.join(save_dir, f"{who}_layer_{i}_importances.csv"))
 
     return gene_feature_importances, additional_feature_importances, gene_importances, layer_importance_scores
 
