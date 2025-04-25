@@ -105,7 +105,7 @@ def extract_target(df, id_to_use="Tumor_Sample_Barcode", target_col="is_met"):
     assert id_to_use in df.columns.tolist(), (
         "The ID you wanted to use isn't in the DF columns"
     )  # e.g. "Tumor_Sample_Barcode", "vcf_germline_ids"
-    logging.info("Generating the target DF (target column '{target_col}' indexed by '{id}')")
+    logging.info(f"Generating the target DF (target column '{target_col}' indexed by '{id_to_use}')")
     target = df.set_index(id_to_use).loc[:, [target_col]]
     logging.debug(target.head())
     logging.debug(len(target))
@@ -214,7 +214,10 @@ def load_sample_metadata_with_all_germline_ids(
 ##############################
 # Prostate project data formatting/munging
 ##############################
-def get_genes_in_common(*dataframes):  # TODO: test function
+def get_genes_in_common(
+    *dataframes,
+    tcga_gene_list_f="../../../pnet_germline/data/pnet_database/genes/tcga_prostate_expressed_genes_and_cancer_genes.csv",
+):  # TODO: test function
     logging.info("Finding overlapping genes across the DFs")
     overlapping_genes = data_manipulation.find_overlapping_columns(*dataframes)
 
@@ -222,9 +225,7 @@ def get_genes_in_common(*dataframes):  # TODO: test function
         "Find the overlap between this and the pre-specified list of TCGA cancer genes and those expressed in the prostate"
     )
     # TODO: looks like there was an excel misshap! MAR1 has become 1-Mar, 10-Sept, etc. But I don't think these genes are covered by our datasets anyway...
-    genes = pd.read_csv(
-        "../../pnet_germline/data/pnet_database/genes/tcga_prostate_expressed_genes_and_cancer_genes.csv"
-    )
+    genes = pd.read_csv(tcga_gene_list_f)
     logging.debug(genes.head())
     overlapping_genes = data_manipulation.find_overlapping_elements(set(genes["genes"]), overlapping_genes)
 
@@ -237,7 +238,6 @@ def restrict_to_genes_in_common(*datasets):
     Args:
     - *datasets (Pandas DF): arbitrary number of DFs with format samples x genes/features
     """
-    # return df[genes_in_common].copy()
     genes_in_common = get_genes_in_common(*datasets)
     restricted_dataframes = data_manipulation.filter_to_specified_columns(genes_in_common, *datasets)
     return restricted_dataframes
@@ -319,7 +319,7 @@ def harmonize_prostate_ids(
         return datasets_w_germline_ids, datasets_w_somatic_ids
 
 
-def convert_germline_id_to_somatic_id(germlineIDs, GERMLINE_DATADIR="../../pnet_germline/data/"):
+def convert_germline_id_to_somatic_id(germlineIDs, GERMLINE_DATADIR="../../../pnet_germline/data/"):
     """
     Convert list of germline IDs (vcf_germline_id) to somatic IDs (Tumor_Sample_Barcode).
     Warn if the converted list has any NAs: this means that a match wasn't found.
@@ -336,7 +336,7 @@ def convert_germline_id_to_somatic_id(germlineIDs, GERMLINE_DATADIR="../../pnet_
     return somaticIDs
 
 
-def convert_somatic_id_to_germline_id(somaticIDs, GERMLINE_DATADIR="../../pnet_germline/data/"):
+def convert_somatic_id_to_germline_id(somaticIDs, GERMLINE_DATADIR="../../../pnet_germline/data/"):
     """
     Convert list of somatic IDs (Tumor_Sample_Barcode) to germline IDs (vcf_germline_id).
     Warn if the converted list has any NAs: this means that a match wasn't found.
