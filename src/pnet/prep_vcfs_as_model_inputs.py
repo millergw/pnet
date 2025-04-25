@@ -58,7 +58,7 @@ def parse_arguments():
         help="Somatic data directory",
     )
     parser.add_argument("--germline_datadir", default="../../pnet_germline/data/", help="Germline data directory")
-    parser.add(
+    parser.add_argument(
         "--input_data_wandb_id",
         default="",
         help="W&B run ID that created the data in the input_data_dir, if applicable",
