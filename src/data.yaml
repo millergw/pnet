@@ -10,8 +10,8 @@ genetic_data:
         filename: "germline_rare_lof.csv"
     germline_rare_missense: 
         filename: "germline_rare_missense.csv"
-    germline_common_lof: 
-        filename: "germline_common_lof.csv"
+    # germline_common_lof: 
+    #     filename: "germline_common_lof.csv"
     germline_common_missense: 
         filename: "germline_common_missense.csv"
     # all LOF

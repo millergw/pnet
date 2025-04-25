@@ -1,35 +1,73 @@
 
 # Project where the sweep runs will be logged
 project: "prostate_met_status"
-group: pnet_somatic_and_germline_exp_003
 
-# small run so I can check misclassification errors in germline vs. somatic
+# sweep where all germline is combined into a single data modality
 program: run_model_on_preharmonized_data.py
 method: grid
 parameters:
   datasets:
     values:
-      - "somatic_amp somatic_del somatic_mut" # all somatic
+      - "somatic_amp somatic_del somatic_mut"
+      - "germline_rare_lof"
+      - "germline_rare_common_missense" # all missense
+      - "germline_rare_lof_missense" # all rare
+      - "germline_common_lof_missense" # all common
+      - "somatic_amp somatic_del somatic_mut germline_rare_lof"
       - "germline_rare_common_lof_missense" # all 4 germline
-      - "somatic_amp somatic_del somatic_mut germline_rare_common_lof_missense" # all somatic and all 4 germline 
+      - "somatic_amp somatic_del somatic_mut germline_rare_common_lof_missense" # somatic and all 4 germline
+      - "somatic_amp somatic_del somatic_mut germline_rare_lof_missense" # somatic and all rare
+      - "somatic_amp somatic_del somatic_mut germline_common_lof_missense" # somatic and all common
+      - "somatic_amp somatic_del somatic_mut germline_rare_common_lof" # somatic and all LOF
+      - "somatic_amp somatic_del somatic_mut germline_rare_common_missense" # somatic and all missense
   data_config_f:
     value: "data.yaml"
   evaluation_set:
     values: ["validation"]
   model_type:
-    values: ["pnet"]
+    values: ["pnet", "rf"]
   wandb_group:
-    value: "pnet_somatic_and_germline_exp_003"
+    value: "pnet_somatic_and_germline_exp_004"
   wandb_project: 
     value: "prostate_met_status"
   seed:
-    values: [123, 42, 155] 
+    values: [123, 42, 155, 23, 356] 
   input_data_wandb_id:
-    value: "q151d0zw"
+    value: "u5yt90p1"
   input_data_dir:
-    value: "../../pnet_germline/processed/wandb-group-data_prep_germline_tier12_and_somatic/converted-IDs-to-somatic_imputed-germline_True_imputed-somatic_False_paired-samples-True/wandb-run-id-q151d0zw"
+    value: "../../pnet_germline/processed/wandb-group-data_prep_germline_tier12_and_somatic/converted-IDs-to-somatic_imputed-germline_True_imputed-somatic_False_paired-samples-True/wandb-run-id-u5yt90p1"
   cpus:
     value: 8
+  min_samples_split:
+    value: 50
+
+# N.B.: any run that used q151d0zw as input data used germline VCFs that were filtered for quality, but did not go through the pathogenicity filters.
+# program: run_model_on_preharmonized_data.py
+# method: grid
+# parameters:
+#   datasets:
+#     values:
+#       - "somatic_amp somatic_del somatic_mut" # all somatic
+#       - "germline_rare_common_lof_missense" # all 4 germline
+#       - "somatic_amp somatic_del somatic_mut germline_rare_common_lof_missense" # all somatic and all 4 germline 
+#   data_config_f:
+#     value: "data.yaml"
+#   evaluation_set:
+#     values: ["validation"]
+#   model_type:
+#     values: ["pnet"]
+#   wandb_group:
+#     value: "pnet_somatic_and_germline_exp_003"
+#   wandb_project: 
+#     value: "prostate_met_status"
+#   seed:
+#     values: [123, 42, 155] 
+#   input_data_wandb_id:
+#     value: "q151d0zw"
+#   input_data_dir:
+#     value: "../../pnet_germline/processed/wandb-group-data_prep_germline_tier12_and_somatic/converted-IDs-to-somatic_imputed-germline_True_imputed-somatic_False_paired-samples-True/wandb-run-id-q151d0zw"
+#   cpus:
+#     value: 8
 
 # # sweep to check RF hyperparameters
 # program: run_model_on_preharmonized_data.py
@@ -72,11 +110,11 @@ parameters:
 #       - "germline_common_lof_missense" # all common
 #       - "somatic_amp somatic_del somatic_mut germline_rare_lof"
 #       - "germline_rare_common_lof_missense" # all 4 germline
-#       - "somatic_amp somatic_del somatic_mut germline_rare_common_lof_missense" # s and all 4 germline
-#       - "somatic_amp somatic_del somatic_mut germline_rare_lof_missense" # s and all rare
-#       - "somatic_amp somatic_del somatic_mut germline_common_lof_missense" # s and all common
-#       - "somatic_amp somatic_del somatic_mut germline_rare_common_lof" # s and all LOF
-#       - "somatic_amp somatic_del somatic_mut germline_rare_common_missense" # s and all missense
+#       - "somatic_amp somatic_del somatic_mut germline_rare_common_lof_missense" # somatic and all 4 germline
+#       - "somatic_amp somatic_del somatic_mut germline_rare_lof_missense" # somatic and all rare
+#       - "somatic_amp somatic_del somatic_mut germline_common_lof_missense" # somatic and all common
+#       - "somatic_amp somatic_del somatic_mut germline_rare_common_lof" # somatic and all LOF
+#       - "somatic_amp somatic_del somatic_mut germline_rare_common_missense" # somatic and all missense
 #   data_config_f:
 #     value: "data.yaml"
 #   evaluation_set:
