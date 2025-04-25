@@ -105,12 +105,12 @@ def load_data(somatic_datadir, germline_datadir):
                 "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_patho-vars-only_rare_moderate-impact.txt",
             )
         ),
-        "germline_common_lof": prostate_data_loaders.get_germline_mutation(
-            os.path.join(
-                germline_datadir,
-                "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_patho-vars-only_common_high-impact.txt",
-            )
-        ),
+        # "germline_common_lof": prostate_data_loaders.get_germline_mutation(
+        #     os.path.join(
+        #         germline_datadir,
+        #         "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_patho-vars-only_common_high-impact.txt",
+        #     )
+        # ),
         "germline_common_missense": prostate_data_loaders.get_germline_mutation(
             os.path.join(
                 germline_datadir,
@@ -219,6 +219,10 @@ def process_data(somatic_datasets, germline_datasets, additional, y, args):
         )
     if args.use_only_paired:
         # restrict DFs to overlapping samples
+        logging.debug(f"Somatic dataset indices: {[df.index.tolist() for df in somatic_datasets.values()]}")
+        logging.debug(f"Germline dataset indices: {[df.index.tolist() for df in germline_datasets.values()]}")
+        logging.debug(f"Additional dataset indices: {additional.index.tolist()}")
+        logging.debug(f"Target dataset indices: {y.index.tolist()}")
         datasets = restrict_to_paired_samples(somatic_datasets, germline_datasets, additional, y)
         somatic_datasets = {k: datasets[k] for k in somatic_datasets}
         germline_datasets = {k: datasets[k] for k in germline_datasets}

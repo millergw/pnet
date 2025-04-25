@@ -375,7 +375,6 @@ def convert_binary_var_mat_to_gene_level_mat(binary_genotypes, variant_metadata,
         logging.debug(f"for gene {gene} we have {len(curr_vars)} variants: {curr_vars}")
         logging.debug(f"binary_genotypes.loc[curr_vars,:]: {binary_genotypes.loc[curr_vars, :].shape}")
         curr_gene_level_info = binary_genotypes.loc[curr_vars, :].sum(axis=0)
-        logging.debug(f"curr_gene_level_info: {curr_gene_level_info.shape}")
         gene_burden_rows.append(curr_gene_level_info)
         genes.append(gene)
 

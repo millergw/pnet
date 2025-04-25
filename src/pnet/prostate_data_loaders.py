@@ -327,12 +327,16 @@ def convert_germline_id_to_somatic_id(germlineIDs, GERMLINE_DATADIR="../../../pn
     logging.debug("Loading the germline ID and somatic-germline ID mapping DF")
     germline_somatic_id_map_f = os.path.join(GERMLINE_DATADIR, "prostate/germline_somatic_id_map_outer_join.csv")
     germline_somatic_id_map = data_manipulation.load_df_verbose(germline_somatic_id_map_f)
-    logging.info("Converting list of germline IDs (vcf_germline_id) to somatic IDs (Tumor_Sample_Barcode).")
+    logging.debug(
+        f"Converting list of {len(germlineIDs)} germline IDs (vcf_germline_id) to somatic IDs (Tumor_Sample_Barcode)."
+    )
     somaticIDs = data_manipulation.convert_values(
         input_value=germlineIDs,
         source=germline_somatic_id_map.vcf_germline_id.tolist(),
         target=germline_somatic_id_map.Tumor_Sample_Barcode.tolist(),
     )
+    logging.debug(f"first 5 germline IDs: {germlineIDs[:5]}")
+    logging.debug(f"first 5 somatic IDs: {somaticIDs[:5]}")
     return somaticIDs
 
 

@@ -136,6 +136,9 @@ def find_overlapping_indices(*dataframes):
 
     logging.debug("Extract index names from each DataFrame and convert them to sets")
     indices_sets = [set(df.index) for df in dataframes]
+    logging.debug("first 5 elements from each set in indices_sets")
+    for i, indices_set in enumerate(indices_sets):
+        logging.debug(f"Set {i}: {list(indices_set)[:5]}")
 
     logging.debug("Find the intersection of all sets to get overlapping indices")
     overlapping_indices = list(set.intersection(*indices_sets))
@@ -271,10 +274,12 @@ def drop_na_index_rows(df):
     print("\nDataFrame after dropping rows with missing index values:")
     print(cleaned_df)
     """
-    logging.info("Use boolean indexing to drop rows with NaN index values")
+    logging.debug("Dropping rows with NaN index values")
     logging.debug(f"Shape before: {df.shape}")
     cleaned_df = df[~df.index.isna()]
     logging.debug(f"Shape after: {cleaned_df.shape}")
+    if cleaned_df.shape != df.shape:
+        logging.info(f"Dropped {df.shape[0] - cleaned_df.shape[0]} rows with missing index values")
     return cleaned_df
 
 
@@ -328,12 +333,10 @@ def convert_values(input_value, source, target):
     print(f"Converted List: {conversion_result}")
     # > Converted List: ['red', 'yellow', 'kiwi']
     """
-
-    logging.debug("Ensure source and target have the same length")
     if len(source) != len(target):
         raise ValueError("Input lists must have the same length.")
 
-    logging.info("Converting input by creating a dictionary to map values from 'source' to 'target'")
+    logging.debug("Converting input by creating a dictionary to map values from 'source' to 'target'")
     value_mapping = dict(zip(source, target))
 
     logging.debug("Initialize lists to track converted and unconverted items")
@@ -358,39 +361,7 @@ def convert_values(input_value, source, target):
             converted_items.append(np.nan)
             unconverted_items.append(input_value)
 
-    logging.debug("{len(converted_items)} converted: {converted_items}")
+    logging.debug(f"{len(converted_items)} converted: {converted_items}")
     if len(unconverted_items) > 0:
-        logging.warn("{len(unconverted_items)} couldn't be converted: {unconverted_items}")
+        logging.warn(f"{len(unconverted_items)} couldn't be converted: {unconverted_items}")
     return converted_items
-
-
-def convert_values_old(input_value, source, target):
-    """
-    # Example usage
-    source = ['apple', 'banana', 'cherry']
-    target = ['red', 'yellow', 'red']
-
-    # Convert a single value
-    converted_value = convert_values('banana', source, target)
-    print(f"Converted Value: {converted_value}")
-    # > Converted Value: 'yellow'
-
-    # Convert a list of values
-    input_list = ['apple', 'banana', 'kiwi']
-    converted_list = convert_values(input_list, source, target)
-    print(f"Converted List: {converted_list}")
-    # > Converted List: ['red', 'yellow', 'kiwi']
-    """
-    logging.info("Converting input by creating a dictionary to map values from 'source' to 'target'")
-    value_mapping = dict(zip(source, target))
-
-    if isinstance(input_value, list):
-        logging.debug("If input_value is a list, convert each element")
-        output = list(map(lambda x: value_mapping.get(x, np.nan), input_value))
-    else:
-        logging.debug("If input_value is a single value, convert it")
-        output = value_mapping.get(input_value, np.nan)
-
-    if np.nan in output:
-        logging.warn("The converted list contains np.nan values.")
-    return output
