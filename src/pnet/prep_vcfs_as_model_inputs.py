@@ -290,6 +290,7 @@ def main():
     )
 
     params = {
+        "wandb_run_id_that_created_inputs": args.input_data_wandb_id,
         "zero_impute_germline": args.zero_impute_germline,
         "zero_impute_somatic": args.zero_impute_somatic,
         "restricted_to_pairs": args.use_only_paired,
