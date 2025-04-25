@@ -29,12 +29,10 @@ import logging
 import os
 
 import wandb
-
-# Gwen's scripts
 from pnet import data_manipulation, prostate_data_loaders, report_and_eval
 
 
-def configure_logging(log_file="run_pnet.log"):
+def configure_logging(log_file="prep_vcfs_as_model_input.log"):
     logging.basicConfig(
         filename=log_file,
         encoding="utf-8",
@@ -60,6 +58,11 @@ def parse_arguments():
         help="Somatic data directory",
     )
     parser.add_argument("--germline_datadir", default="../../pnet_germline/data/", help="Germline data directory")
+    parser.add(
+        "--input_data_wandb_id",
+        default="",
+        help="W&B run ID that created the data in the input_data_dir, if applicable",
+    )
     parser.add_argument(
         "--save_dir", default="../../pnet_germline/processed/", help="Directory storing model-ready input"
     )
@@ -93,55 +96,55 @@ def load_data(somatic_datadir, germline_datadir):
         "germline_rare_lof": prostate_data_loaders.get_germline_mutation(
             os.path.join(
                 germline_datadir,
-                "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_rare_high-impact.txt",
+                "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_patho-vars-only_rare_high-impact.txt",
             )
         ),
         "germline_rare_missense": prostate_data_loaders.get_germline_mutation(
             os.path.join(
                 germline_datadir,
-                "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_rare_moderate-impact.txt",
+                "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_patho-vars-only_rare_moderate-impact.txt",
             )
         ),
         "germline_common_lof": prostate_data_loaders.get_germline_mutation(
             os.path.join(
                 germline_datadir,
-                "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_common_high-impact.txt",
+                "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_patho-vars-only_common_high-impact.txt",
             )
         ),
         "germline_common_missense": prostate_data_loaders.get_germline_mutation(
             os.path.join(
                 germline_datadir,
-                "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_common_moderate-impact.txt",
+                "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_patho-vars-only_common_moderate-impact.txt",
             )
         ),
         "germline_rare_common_lof": prostate_data_loaders.get_germline_mutation(
             os.path.join(
                 germline_datadir,
-                "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_rare_common_high-impact.txt",
+                "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_patho-vars-only_rare_common_high-impact.txt",
             )
         ),
         "germline_rare_common_missense": prostate_data_loaders.get_germline_mutation(
             os.path.join(
                 germline_datadir,
-                "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_rare_common_moderate-impact.txt",
+                "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_patho-vars-only_rare_common_moderate-impact.txt",
             )
         ),
         "germline_rare_lof_missense": prostate_data_loaders.get_germline_mutation(
             os.path.join(
                 germline_datadir,
-                "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_rare_high-impact_moderate-impact.txt",
+                "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_patho-vars-only_rare_high-impact_moderate-impact.txt",
             )
         ),
         "germline_common_lof_missense": prostate_data_loaders.get_germline_mutation(
             os.path.join(
                 germline_datadir,
-                "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_common_high-impact_moderate-impact.txt",
+                "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_patho-vars-only_common_high-impact_moderate-impact.txt",
             )
         ),
         "germline_rare_common_lof_missense": prostate_data_loaders.get_germline_mutation(
             os.path.join(
                 germline_datadir,
-                "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_rare_common_high-impact_moderate-impact.txt",
+                "prostate/prostate_germline_vcf_subset_to_germline_tier_12_and_somatic_passed-universal-filters_patho-vars-only_rare_common_high-impact_moderate-impact.txt",
             )
         ),
     }
