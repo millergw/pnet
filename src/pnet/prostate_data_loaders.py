@@ -73,7 +73,6 @@ def get_additional_data(
 ):
     logging.info("Getting additional data")
     additional_df = load_additional_data(additional_f, id_map_f, cols_to_include=cols_to_include)
-    additional_df = format_additional_data(additional_df)
     return additional_df
 
 

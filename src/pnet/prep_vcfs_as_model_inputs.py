@@ -54,17 +54,17 @@ def parse_arguments():
     parser.add_argument("--zero_impute_somatic", action="store_true", help="Zero impute somatic")
     parser.add_argument(
         "--somatic_datadir",
-        default="../../pnet_germline/data/pnet_database/prostate/processed",
+        default="../../../pnet_germline/data/pnet_database/prostate/processed",
         help="Somatic data directory",
     )
-    parser.add_argument("--germline_datadir", default="../../pnet_germline/data/", help="Germline data directory")
+    parser.add_argument("--germline_datadir", default="../../../pnet_germline/data/", help="Germline data directory")
     parser.add_argument(
         "--input_data_wandb_id",
         default="",
         help="W&B run ID that created the data in the input_data_dir, if applicable",
     )
     parser.add_argument(
-        "--save_dir", default="../../pnet_germline/processed/", help="Directory storing model-ready input"
+        "--save_dir", default="../../../pnet_germline/processed/", help="Directory storing model-ready input"
     )
     return parser.parse_args()
 
