@@ -1,5 +1,5 @@
 # W&B
-src/wandb
+src/pnet/wandb
 results/
 *.tsv
 *.csv

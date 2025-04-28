@@ -140,8 +140,6 @@ def main():
     EVALUATION_SET = args.evaluation_set
     MODEL_TYPE = args.model_type
     SEED = args.seed
-    MODEL_TYPE = args.model_type
-    EVALUATION_SET = args.evaluation_set
     SPLITS_DIR = args.data_split_dir
     TRAIN_SET_INDS_F = os.path.join(SPLITS_DIR, "training_set.csv")
     EVALUATION_SET_INDS_F = os.path.join(SPLITS_DIR, f"{EVALUATION_SET}_set.csv")
@@ -149,7 +147,7 @@ def main():
     Pnet.set_random_seeds(SEED, turn_off_cuDNN=False)
     torch.set_num_threads(args.cpus)
 
-    # TODO: add save dir
+    # Building save dir
     SAVE_DIR = f"../results/{MODEL_TYPE}_eval_set_{EVALUATION_SET}/wandbID_{wandb.run.id}"
     if WANDB_GROUP != "":
         SAVE_DIR = f"../results/{WANDB_GROUP}/{MODEL_TYPE}_eval_set_{EVALUATION_SET}/wandbID_{wandb.run.id}"
@@ -158,7 +156,7 @@ def main():
     # TODO: need to figure out how to read in the dictionary style items (all my data)
     config = read_config(args.data_config_f)
 
-    logging.debug("datasets: ", args.datasets, type(args.datasets))
+    logging.debug(f"datasets: {args.datasets}, type: {type(args.datasets)}")
 
     logging.info(f"Loading data from directory {args.input_data_dir}")
     input_data_wandb_id = args.input_data_wandb_id
@@ -201,7 +199,7 @@ def main():
         "l1_ratio": args.l1_ratio,
         "dropout": 0.2,
         "input_dropout": args.input_dropout,
-        "additional_dims": 0,
+        "additional_dims": additional.shape[1],
         "output_dim": 1,
         "lr": 1e-3,
         "weight_decay": 1e-3,
@@ -250,7 +248,6 @@ def main():
 
     elif MODEL_TYPE == "bdt":
         model = model_selection.run_bdt(x_train, y_train, random_seed=None)
-        # TODO: start here 2/15. Unsure if test_dataset.input or test_dataset.x is appropriate for the get_deviance function.
         logging.info("Making deviance plots to check convergence/overfitting for model")
         train_scores, test_scores = report_and_eval.get_deviance(model, x_test, y_test)
         plt = report_and_eval.get_loss_plot(

@@ -11,7 +11,7 @@ genetic_data:
     germline_rare_missense: 
         filename: "germline_rare_missense.csv"
     # germline_common_lof: 
-    #     filename: "germline_common_lof.csv"
+    #     filename: "germline_common_lof.csv" # removed: zero variants in this category
     germline_common_missense: 
         filename: "germline_common_missense.csv"
     # all LOF
