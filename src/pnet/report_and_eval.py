@@ -223,7 +223,7 @@ def get_performance_metrics(who, y_trues, y_preds, y_probas, save_dir=None):
     for k, v in metric_dict.items():
         wandb.run.summary[k] = v
     logging.info(f"Logging {who} set confusion matrix plot to W&B")
-    wandb.sklearn.plot_confusion_matrix(y_trues, y_preds)
+    wandb.log({f"{who}_confusion_matrix_plot" : wandb.plot.confusion_matrix(wandb.sklearn.plot_confusion_matrix(y_trues, y_preds))})
 
     return metric_dict
 

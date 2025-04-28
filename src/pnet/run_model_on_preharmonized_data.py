@@ -55,7 +55,7 @@ def parse_arguments():
     parser.add("--input_data_dir", help="Directory with model-ready data")
     parser.add(
         "--data_split_dir",
-        default="../../pnet_germline/data/pnet_database/prostate/splits",
+        default="../../../pnet_germline/data/pnet_database/prostate/splits",
         help="Directory with data split files",
     )
     parser.add(
@@ -128,7 +128,6 @@ def main():
         # Set the project where this run will be logged
         project=args.wandb_project,
         group=WANDB_GROUP,
-        resume="must",
     )
 
     # allow for WandB to automatically re-queue if a run gets interrupted
@@ -148,9 +147,9 @@ def main():
     torch.set_num_threads(args.cpus)
 
     # Building save dir
-    SAVE_DIR = f"../results/{MODEL_TYPE}_eval_set_{EVALUATION_SET}/wandbID_{wandb.run.id}"
+    SAVE_DIR = f"../../results/{MODEL_TYPE}_eval_set_{EVALUATION_SET}/wandbID_{wandb.run.id}"
     if WANDB_GROUP != "":
-        SAVE_DIR = f"../results/{WANDB_GROUP}/{MODEL_TYPE}_eval_set_{EVALUATION_SET}/wandbID_{wandb.run.id}"
+        SAVE_DIR = f"../../results/{WANDB_GROUP}/{MODEL_TYPE}_eval_set_{EVALUATION_SET}/wandbID_{wandb.run.id}"
     report_and_eval.make_dir_if_needed(SAVE_DIR)
 
     # TODO: need to figure out how to read in the dictionary style items (all my data)
