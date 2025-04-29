@@ -592,12 +592,12 @@ def train(
         test_epoch_loss = validate(model, test_loader)
         train_scores.append(train_epoch_loss)
         test_scores.append(test_epoch_loss)
-        # saving info to Weights and Biases
+        # saving loss to Weights and Biases
         wandb.log({"Train Loss": train_epoch_loss, "Test Loss": test_epoch_loss})
 
         if lr_scheduler:
             scheduler.step()
-        if verbose:
+        if verbose and (epoch + 1) % 10 == 0:  # Print every 10 epochs
             print(f"Epoch {epoch + 1} of {epochs}")
             print(f"Train Loss: {train_epoch_loss}")
             print(f"Test Loss: {test_epoch_loss}")
@@ -645,7 +645,7 @@ def run(
     target,
     use_embeddings=False,
     gene_embeddings=None,
-    save_path="../results/model",
+    save_path="../../results/model",
     gene_set=None,
     additional_data=None,
     test_split=0.2,
@@ -735,7 +735,7 @@ def run(
 def run_regulatory(
     genetic_data,
     target,
-    save_path="../results/model",
+    save_path="../../results/model",
     gene_set=None,
     additional_data=None,
     test_split=0.2,
@@ -804,7 +804,7 @@ def run_geneset(
     geneset_path,
     num_layers=3,
     sparsity=0.9,
-    save_path="../results/model",
+    save_path="../../results/model",
     genes=None,
     additional_data=None,
     test_split=0.2,

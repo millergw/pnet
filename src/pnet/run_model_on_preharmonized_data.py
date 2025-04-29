@@ -14,14 +14,14 @@ import wandb
 from pnet import Pnet, model_selection, pnet_loader, report_and_eval
 
 logging.basicConfig(
-    filename="run_pnet.log",
     encoding="utf-8",
     format="%(asctime)s %(levelname)-8s %(message)s",
     level=logging.INFO,
     datefmt="%Y-%m-%d %H:%M:%S",
+    force=True,
 )
 
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
@@ -30,6 +30,12 @@ class ParseAction(configargparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
         values = list(map(str, values.split()))
         setattr(namespace, self.dest, values)
+
+
+def none_or_float(value):
+    if value == "None" or value is None:
+        return None
+    return float(value)
 
 
 def parse_arguments():
@@ -55,7 +61,7 @@ def parse_arguments():
     parser.add("--input_data_dir", help="Directory with model-ready data")
     parser.add(
         "--data_split_dir",
-        default="../../pnet_germline/data/pnet_database/prostate/splits",
+        default="../../../pnet_germline/data/pnet_database/prostate/splits",
         help="Directory with data split files",
     )
     parser.add(
@@ -78,8 +84,8 @@ def parse_arguments():
     )
     parser.add(
         "--h1_alpha",
-        default=0.5,
-        type=float,
+        default=None,
+        type=none_or_float,
         help="Strength of regularization on weights going to the first hidden layer (genes)",
     )
     parser.add(
@@ -128,7 +134,6 @@ def main():
         # Set the project where this run will be logged
         project=args.wandb_project,
         group=WANDB_GROUP,
-        resume="must",
     )
 
     # allow for WandB to automatically re-queue if a run gets interrupted
@@ -148,9 +153,9 @@ def main():
     torch.set_num_threads(args.cpus)
 
     # Building save dir
-    SAVE_DIR = f"../results/{MODEL_TYPE}_eval_set_{EVALUATION_SET}/wandbID_{wandb.run.id}"
+    SAVE_DIR = f"../../results/{MODEL_TYPE}_eval_set_{EVALUATION_SET}/wandbID_{wandb.run.id}"
     if WANDB_GROUP != "":
-        SAVE_DIR = f"../results/{WANDB_GROUP}/{MODEL_TYPE}_eval_set_{EVALUATION_SET}/wandbID_{wandb.run.id}"
+        SAVE_DIR = f"../../results/{WANDB_GROUP}/{MODEL_TYPE}_eval_set_{EVALUATION_SET}/wandbID_{wandb.run.id}"
     report_and_eval.make_dir_if_needed(SAVE_DIR)
 
     # TODO: need to figure out how to read in the dictionary style items (all my data)

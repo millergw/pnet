@@ -1,7 +1,4 @@
 
-# Project where the sweep runs will be logged
-project: "prostate_met_status"
-
 # sweep where all germline is combined into a single data modality
 program: run_model_on_preharmonized_data.py
 method: grid
@@ -21,7 +18,7 @@ parameters:
       - "somatic_amp somatic_del somatic_mut germline_rare_common_lof" # somatic and all LOF
       - "somatic_amp somatic_del somatic_mut germline_rare_common_missense" # somatic and all missense
   data_config_f:
-    value: "data.yaml"
+    value: "/mnt/disks/gmiller_data1/pnet/src/data.yaml"
   evaluation_set:
     values: ["validation"]
   model_type:
@@ -35,7 +32,7 @@ parameters:
   input_data_wandb_id:
     value: "u5yt90p1"
   input_data_dir:
-    value: "../../pnet_germline/processed/wandb-group-data_prep_germline_tier12_and_somatic/converted-IDs-to-somatic_imputed-germline_True_imputed-somatic_False_paired-samples-True/wandb-run-id-u5yt90p1"
+    value: "/mnt/disks/gmiller_data1/pnet_germline/processed/wandb-group-data_prep_germline_tier12_and_somatic/converted-IDs-to-somatic_imputed-germline_True_imputed-somatic_False_paired-samples-True/wandb-run-id-u5yt90p1"
   cpus:
     value: 8
   min_samples_split:
