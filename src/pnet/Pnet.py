@@ -592,12 +592,12 @@ def train(
         test_epoch_loss = validate(model, test_loader)
         train_scores.append(train_epoch_loss)
         test_scores.append(test_epoch_loss)
-        # saving info to Weights and Biases
+        # saving loss to Weights and Biases
         wandb.log({"Train Loss": train_epoch_loss, "Test Loss": test_epoch_loss})
 
         if lr_scheduler:
             scheduler.step()
-        if verbose:
+        if verbose and (epoch + 1) % 10 == 0:  # Print every 10 epochs
             print(f"Epoch {epoch + 1} of {epochs}")
             print(f"Train Loss: {train_epoch_loss}")
             print(f"Test Loss: {test_epoch_loss}")

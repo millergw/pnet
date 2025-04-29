@@ -28,9 +28,7 @@ from sklearn.metrics import (
 
 import wandb
 
-logging.basicConfig(format="%(asctime)s %(levelname)-8s %(message)s", level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S")
-logger = logging.getLogger()
-
+logger = logging.getLogger(__name__)
 
 #################
 # Reporting
@@ -162,25 +160,56 @@ def get_loss_plot(
 
 
 def get_pnet_preds_and_probs(model, pnet_dataset):
-    model.to("cpu")  # TODO: is this needed?
+    """
+    Get the predictions and probabilities from a Pnet model.
+    Args:
+    - model: this is a Pnet model object
+    - pnet_dataset: this is a Pnet dataset object (not a DF), and has attributes x, additional, y, etc.
+
+    Outputs:
+    - preds: 1D array of the predicted labels, shape: (n_samples,)
+    - pred_probas: 1D array pf the predicted probabilities, shape: (n_samples,)
+    """
+    model.to("cpu")
     x = pnet_dataset.x
     additional = pnet_dataset.additional
-    pred_probas = model.predict_proba(x, additional).detach()
-    preds = model.predict(x, additional).detach()
+    logging.debug("Running `get_pnet_preds_and_probs`.\nSanitize for logging and downstream use (.detach().cpu())")
+    pred_probas = model.predict_proba(x, additional).detach().cpu()
+    preds = model.predict(x, additional).detach().cpu()
+
+    logging.debug(f"Shape of pred_probas from `model.predict_proba`: {pred_probas.shape}")
+    logging.debug(f"Type of pred_probas from `model.predict_proba`: {type(pred_probas)}")
 
     # Ensure preds is 1D
     if preds.dim() > 1:
         preds = preds.squeeze(1)  # Converts shape from [N, 1] → [N]
 
-    # Ensure pred_probas is 1D for binary classification
-    if pred_probas.dim() > 1 and pred_probas.shape[1] == 2:
-        pred_probas = pred_probas[:, 1]  # Take the probability of class 1
-    elif pred_probas.dim() > 1 and pred_probas.shape[1] == 1:
-        pred_probas = pred_probas.squeeze(1)  # Remove the singleton dimension; converts shape from [N, 1] → [N]
-    logging.info(f"Shape of preds: {preds.shape}")
-    logging.info(f"Shape of pred_probas: {pred_probas.shape}")
+    # Ensure pred_probas is 1D
+    if pred_probas.dim() > 1:
+        pred_probas = pred_probas.squeeze(1)
+
+    # Now convert to NumPy arrays since all downstream tools expect numpy, not tensors
+    preds = preds.numpy()
+    pred_probas = pred_probas.numpy()
+
+    logging.debug(f"Shape of preds: {preds.shape}")
+    logging.debug(f"Shape of pred_probas: {pred_probas.shape}")
+    logging.debug(f"Type of preds: {type(preds)}")
+    logging.debug(f"Type of pred_probas: {type(pred_probas)}")
 
     return preds, pred_probas
+
+
+def prepare_labels(y):
+    logging.debug("Preparing labels")
+    logging.debug(f"Start y[0:5]: {y[0:5]}")
+    if hasattr(y, "detach"):
+        y = y.detach().cpu()
+    if hasattr(y, "numpy"):
+        y = y.numpy()
+    y = np.asarray(y).squeeze().tolist()
+    logging.debug(f"Finish y[0:5]: {y[0:5]}")
+    return y
 
 
 def get_performance_metrics(who, y_trues, y_preds, y_probas, save_dir=None):
@@ -193,9 +222,9 @@ def get_performance_metrics(who, y_trues, y_preds, y_probas, save_dir=None):
         "val",
         "validation",
     ], f"Expected one of train, test, val, or validation but got '{who}'"
-
-    # TODO: add auc curve pdf as in Pnet.evaluate_interpret_save
-    # logging.info(f"Logging {who} set ROC plot to W&B")
+    y_trues = prepare_labels(y_trues)
+    y_preds = prepare_labels(y_preds)
+    y_probas = np.asarray(y_probas)
 
     metric_dict = {
         f"{who}_acc": accuracy_score(y_trues, y_preds, normalize=True),
@@ -204,7 +233,7 @@ def get_performance_metrics(who, y_trues, y_preds, y_probas, save_dir=None):
         f"{who}_average_precision_score": average_precision_score(y_trues, y_probas),
         f"{who}_f1_score": f1_score(y_trues, y_preds),
         f"{who}_confusion_matrix\n": confusion_matrix(y_trues, y_preds).tolist(),
-        f"{who}_classification report\n": classification_report(y_trues, y_preds),
+        f"{who}_classification report\n": classification_report(y_trues, y_preds, output_dict=True),
     }
 
     logging.info(f"{who} set metrics:")
@@ -222,10 +251,33 @@ def get_performance_metrics(who, y_trues, y_preds, y_probas, save_dir=None):
     logging.info(f"Saving {who} set metrics to W&B:")
     for k, v in metric_dict.items():
         wandb.run.summary[k] = v
-    logging.info(f"Logging {who} set confusion matrix plot to W&B")
-    wandb.log({f"{who}_confusion_matrix_plot" : wandb.plot.confusion_matrix(wandb.sklearn.plot_confusion_matrix(y_trues, y_preds))})
 
     return metric_dict
+
+
+def log_plots_to_wandb(who, y_trues, y_preds, y_probas_2col):
+    """
+    Log plots to W&B for the given dataset (train, test, validation).
+    Args:
+    - who: str, the dataset type (train, test, validation).
+    - y_trues: array-like, true labels.
+    - y_preds: array-like, predicted labels.
+    - y_probas: array-like, predicted probabilities. NOTE: shape must be (n_samples, n_classes) for W&B.
+    """
+    y_trues = prepare_labels(y_trues)
+    y_preds = prepare_labels(y_preds)
+
+    logging.info(f"Logging plots to W&B for {who} set")
+    wandb.log(
+        {
+            f"{who}_confusion_matrix_plot": wandb.plot.confusion_matrix(
+                y_true=y_trues, preds=y_preds, class_names=["0", "1"]
+            )
+        }
+    )
+    wandb.log({f"{who}_precision_recall_plot": wandb.plot.pr_curve(y_true=y_trues, y_probas=y_probas_2col)})
+    wandb.log({f"{who}_roc_auc_plot": wandb.plot.roc_curve(y_true=y_trues, y_probas=y_probas_2col)})
+    return
 
 
 def get_summary_metrics_wandb(model, x_train, y_train, x_test, y_test):
@@ -281,6 +333,12 @@ def get_model_preds_and_probs(model, who, model_type="pnet", pnet_dataset=None, 
 def get_sklearn_model_preds_and_probs(sklearn_model, x):
     preds = sklearn_model.predict(x)
     pred_probs = sklearn_model.predict_proba(x)
+
+    logging.debug(f"Shape of preds: {preds.shape}")
+    logging.debug(f"Shape of pred_probas: {pred_probs.shape}")
+    logging.debug(f"Type of preds: {type(preds)}")
+    logging.debug(f"Type of pred_probas: {type(pred_probs)}")
+
     return preds, pred_probs
 
 
@@ -338,10 +396,17 @@ def save_predictions_and_probs(save_dir, who, y_true, y_preds, y_probas, indices
         y_probas (array-like): Predicted probabilities.
         indices (array-like, optional): Indices of the samples.
     """
+    # Ensure formatted as numpy array
+    y_true = np.asarray(y_true)
+    y_preds = np.asarray(y_preds)
+    y_probas = np.asarray(y_probas)
+
+    # Extract probability of class 1 (we're assuming binary classification)
+    y_probas = y_probas[:, 1] if y_probas.ndim > 1 and y_probas.shape[1] == 2 else y_probas
     results_dict = {
-        "true": y_true.squeeze().numpy(),
-        "predicted": y_preds.squeeze().numpy(),
-        "probability": y_probas.squeeze().numpy(),
+        "true": y_true.squeeze(),
+        "predicted": y_preds.squeeze(),
+        "probability": y_probas.squeeze(),
     }
 
     if indices is not None:
@@ -365,13 +430,20 @@ def evaluate_interpret_save(model, who, model_type, pnet_dataset=None, x=None, y
 
     # TODO: need a universal way to get the X vs y components of the `pnet_dataset`
     if model_type == "pnet":
-        y = pnet_dataset.y
+        y = pnet_dataset.y.detach().cpu().squeeze().numpy()
         logging.info(
             f"Getting the {model_type} model predictions on the {who} set, performance metrics, and feature importances (if applicable)"
         )
         y_preds, y_probas = get_model_preds_and_probs(
             model=model, pnet_dataset=pnet_dataset, who=who, model_type=model_type
         )
+        logging.debug(f"Shape of y_preds: {y_preds.shape}")
+        logging.debug(f"Shape of y_probas: {y_probas.shape}")
+        logging.debug(f"Shape of y: {y.shape}")
+        logging.debug(f"Type of y_preds (should be numpy): {type(y_preds)}")
+        logging.debug(f"Type of y_probas (should be numpy): {type(y_probas)}")
+        logging.debug(f"Type of y (should be numpy): {type(y)}")
+
         save_predictions_and_probs(
             save_dir, who, y, y_preds, y_probas, indices=pnet_dataset.input_df.index.tolist()
         )  # TODO: this is universal, and should get pulled out
@@ -382,15 +454,11 @@ def evaluate_interpret_save(model, who, model_type, pnet_dataset=None, x=None, y
         gene_feature_importances, additional_feature_importances, gene_importances, layer_importance_scores = (
             get_pnet_feature_importances(model, who, pnet_dataset, save_dir)
         )
-        importances = {
-            "gene_feature_importances": gene_feature_importances,
-            "additional_feature_importances": additional_feature_importances,
-            "gene_importances": gene_importances,
-            "layer_importance_scores": layer_importance_scores,
-        }
-        # for name,dat in importances.items():
-        #     save_as_file_to_wandb(dat, f'{who}_{name}.csv')
-        # wandb.run.summary[k] = v.to_dict() # TODO: haven't tested and I expect it might not work for everything, some some might be a list?
+
+        if who != "train":
+            proba_2col = np.stack([1 - y_probas, y_probas], axis=1)
+            log_plots_to_wandb(who, y, y_preds, proba_2col)
+
         return (
             metric_dict,
             gene_feature_importances,
@@ -404,23 +472,16 @@ def evaluate_interpret_save(model, who, model_type, pnet_dataset=None, x=None, y
             f"Getting the {model_type} model predictions on the {who} set, performance metrics, and feature importances (if applicable)"
         )
         x = pnet_dataset.x
-        y = pnet_dataset.y.ravel()
+        y = pnet_dataset.y.ravel().numpy()
         input_df = pnet_dataset.input_df
 
         y_preds, y_probas = get_model_preds_and_probs(model=model, x=x, who=who, model_type=model_type)
-        # If the positive class is class 1, use the probabilities for that class
-        y_probas = y_probas[:, 1]
 
-        metric_dict = get_performance_metrics(who, y, y_preds, y_probas, save_dir)
+        save_predictions_and_probs(save_dir, who, y, y_preds, y_probas[:, 1], indices=input_df.index.tolist())
+        metric_dict = get_performance_metrics(who, y, y_preds, y_probas[:, 1], save_dir)
         gene_feature_importances = get_sklearn_feature_importances(model, who=who, input_df=input_df, save_dir=save_dir)
-        # TODO: trying different ways of saving the feature importances (as a dict, a file, and as two separate lists)
-        # save_as_file_to_wandb(gene_feature_importances, f'{who}_gene_feature_importances.csv')
-        # gene_feature_importances= gene_feature_importances.to_dict()
-        # print(f"gene_feature_importances: {gene_feature_importances}")
-        # TODO: why isn't this working with the validation set? Works fine with the training set
-        # wandb.run.summary['gene_feature_importances'] = gene_feature_importances
-        # wandb.run.summary['gene_feature_importances_names'] = list(gene_feature_importances.keys())
-        # wandb.run.summary['gene_feature_importances_values'] = list(gene_feature_importances.values())
+        if who != "train":
+            log_plots_to_wandb(who, y, y_preds, y_probas)
         return gene_feature_importances
 
     else:
