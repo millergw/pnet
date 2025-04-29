@@ -14,14 +14,14 @@ import wandb
 from pnet import Pnet, model_selection, pnet_loader, report_and_eval
 
 logging.basicConfig(
-    filename="run_pnet.log",
     encoding="utf-8",
     format="%(asctime)s %(levelname)-8s %(message)s",
     level=logging.INFO,
     datefmt="%Y-%m-%d %H:%M:%S",
+    force=True,
 )
 
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
@@ -30,6 +30,12 @@ class ParseAction(configargparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
         values = list(map(str, values.split()))
         setattr(namespace, self.dest, values)
+
+
+def none_or_float(value):
+    if value == "None" or value is None:
+        return None
+    return float(value)
 
 
 def parse_arguments():
@@ -78,8 +84,8 @@ def parse_arguments():
     )
     parser.add(
         "--h1_alpha",
-        default=0.5,
-        type=float,
+        default=None,
+        type=none_or_float,
         help="Strength of regularization on weights going to the first hidden layer (genes)",
     )
     parser.add(
