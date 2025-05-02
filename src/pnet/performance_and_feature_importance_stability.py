@@ -5,14 +5,12 @@ import pickle
 import numpy as np
 import pandas as pd
 
-logging.basicConfig(format="%(asctime)s %(levelname)-8s %(message)s", level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S")
-
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-
-# Set your W&B API key or configure it in your environment
 import wandb
 
+logger = logging.getLogger(__name__)
+
+
+# Set your W&B API key or configure it in your environment
 wandb.login()
 
 
@@ -70,7 +68,7 @@ def make_pnet_gene_ranking_df(gene_imps, index):
         len(gene_imps) = number of model runs.
         gene_imps.shape = patients x genes.
     """
-    logging.debug("Formatting data")
+    logger.debug("Formatting data")
     # Extract the first row from each DataFrame
     first_rows = [df.iloc[index] for df in gene_imps]
 
@@ -149,9 +147,9 @@ def make_perpatient_rankings_dfs(gene_imps):
 
 
 def calc_perpatient_stability_metric(gene_imps, n_top_genes=50):
-    # logging.warn("TODO: check the functionality of this function. Is it equivalent to old method? Yes, it is.")
+    # logger.warn("TODO: check the functionality of this function. Is it equivalent to old method? Yes, it is.")
     rankings_dfs = make_perpatient_rankings_dfs(gene_imps)
-    logging.info("Calculating patient-level stability metric")
+    logger.info("Calculating patient-level stability metric")
     row_averages = [df.mean(axis=0) for df in rankings_dfs]
     row_stdevs = [df.std(axis=0) for df in rankings_dfs]
     summary_dfs = [
@@ -165,7 +163,7 @@ def calc_perpatient_stability_metric(gene_imps, n_top_genes=50):
 
 
 def calc_perpatient_stability_metric_old(gene_imps, n_top_genes=50):
-    logging.info("Calculating patient-level stability metric")
+    logger.info("Calculating patient-level stability metric")
     stabs = []
     for patient_i in range(gene_imps[0].shape[0]):
         rankings_df = make_pnet_gene_ranking_df(gene_imps, patient_i)
@@ -179,7 +177,7 @@ def calc_stability_metric_on_runs_by_generank_df(rankings_df, n_top_genes=50):
     Input:
     - rankings_df: runs x genes. Values are gene ranks within a given run.
     """
-    logging.info("Compute the average and standard deviation across rows (aka runs)")
+    logger.info("Compute the average and standard deviation across rows (aka runs)")
     average_across_rows = rankings_df.mean(axis=0)
     std_across_rows = rankings_df.std(axis=0)
 
@@ -201,8 +199,8 @@ def calc_model_stability(imp_lists, n_top_genes=50):
             pd.Series of length number features (e.g. 3x num_genes if using mut, amp, and del data)
             values are feature importance
     """
-    logging.warn("TODO: check functionality. Is the rankings DF correct?")
-    logging.info("Convert to rank and sort")
+    logger.warn("TODO: check functionality. Is the rankings DF correct?")
+    logger.info("Convert to rank and sort")
     rankings_df = pd.DataFrame(imp_lists).apply(lambda row: row.abs().rank(ascending=False), axis=1)
     stability = calc_stability_metric_on_runs_by_generank_df(rankings_df, n_top_genes)
     return stability
