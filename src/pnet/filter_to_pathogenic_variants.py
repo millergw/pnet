@@ -9,10 +9,7 @@ Modified from this notebook: https://app.terra.bio/#workspaces/vanallen-fireclou
 import pandas as pd
 import logging
 
-logging.basicConfig(format="%(asctime)s %(levelname)-8s %(message)s", level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S")
-
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 ######
@@ -82,8 +79,8 @@ def subset_to_low_frequency(vep_df, freq_col="gnomAD_AF", freq=0.01, verbose=Fal
 
     if verbose:
         removed_df = vep_df_copy[vep_df_copy[freq_col] >= freq]
-        logging.info(f"we removed {len(removed_df)} variants")
-        logging.info(removed_df)
+        logger.info(f"we removed {len(removed_df)} variants")
+        logger.info(removed_df)
     return vep_df_copy_lf
 
 
@@ -237,19 +234,19 @@ def variant_selection_workflow(
     vep_truncating_nob = subset_to_non_benign(vep_truncating, clinsig_col)
     # Remove high-impact variants with high-frequency
     vep_truncating_nob_lof = subset_to_low_frequency(vep_truncating_nob)
-    logging.debug(f"vep_truncating_nob_lof: {vep_truncating_nob_lof.shape}\n{vep_truncating_nob_lof.head()}")
+    logger.debug(f"vep_truncating_nob_lof: {vep_truncating_nob_lof.shape}\n{vep_truncating_nob_lof.head()}")
 
     # Set 2
     # Subset to variants with pathogenic clinvar annotation
     vep_patho = subset_to_clinvar_pathogenic(vep_gene_subset, clinsig_col=clinsig_col, conflicting_col=clin_conflict)
-    logging.debug(f"vep_patho: {vep_patho.shape}\n{vep_patho.head()}")
+    logger.debug(f"vep_patho: {vep_patho.shape}\n{vep_patho.head()}")
 
     # Set 3
     # Subset to variants with conflicting clinvar annotation
     vep_conflicting = subset_to_clinvar_conflicting(
         vep_gene_subset, clinsig_col=clinsig_col, conflicting_col=clin_conflict
     )
-    logging.debug(f"vep_conflicting: {vep_conflicting}")
+    logger.debug(f"vep_conflicting: {vep_conflicting}")
     if len(vep_conflicting) > 0:
         # Create a table representing lines of evidence
         vep_conflicting_table = make_confliciting_evidence_table(

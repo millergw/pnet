@@ -16,13 +16,12 @@ from pnet import Pnet, model_selection, pnet_loader, report_and_eval
 logging.basicConfig(
     filename="run_pnet.log",
     encoding="utf-8",
-    format="%(asctime)s %(levelname)-8s %(message)s",
+    format="%(asctime)s %(levelname)-8s [%(name)s] %(message)s",
     level=logging.INFO,
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 # adapted from https://github.com/wandb/wandb/issues/2939 to help W&B sweep
@@ -107,7 +106,7 @@ def main():
     This means we will need to be careful with our input germline dataset if we want to keep all the somatic data. The workaround is to prepare 'harmonized' data beforehand, e.g. with zero-imputed germline features.
     """
 
-    logging.debug("Parsing command-line arguments")
+    logger.debug("Parsing command-line arguments")
     args = parse_arguments()
 
     WANDB_GROUP = args.wandb_group
@@ -144,9 +143,9 @@ def main():
     # TODO: need to figure out how to read in the dictionary style items (all my data)
     config = read_config(args.data_config_f)
 
-    logging.debug("datasets: ", args.datasets, type(args.datasets))
+    logger.debug("datasets: ", args.datasets, type(args.datasets))
 
-    logging.info(f"Loading data from directory {args.input_data_dir}")
+    logger.info(f"Loading data from directory {args.input_data_dir}")
     input_data_wandb_id = args.input_data_wandb_id
 
     for name, info in config["genetic_data"].items():
@@ -159,10 +158,8 @@ def main():
     )
 
     # TODO: add override option here for perturbed data. This will be useful for testing the model's robustness.
-    logging.info(
-        f"Using perturbed target: {args.perturbed_target}" if args.perturbed_target else "Using default target"
-    )
-    logging.info(
+    logger.info(f"Using perturbed target: {args.perturbed_target}" if args.perturbed_target else "Using default target")
+    logger.info(
         f"Using perturbed somatic_mut: {args.perturbed_somatic_mut}"
         if args.perturbed_somatic_mut
         else "Using default somatic_mut"
@@ -185,19 +182,19 @@ def main():
     genetic_data = {}
     for name, info in config["genetic_data"].items():
         genetic_data[name] = info["df"]
-        logging.debug(info["df"].shape)
+        logger.debug(info["df"].shape)
 
     genetic_data = {key: genetic_data[key] for key in DATASETS_TO_USE if key in genetic_data}
-    logging.info(f"Dictionary keys of datasets we will use: {genetic_data.keys()}")
+    logger.info(f"Dictionary keys of datasets we will use: {genetic_data.keys()}")
 
-    logging.info("Reporting summary information about all the input data.")
+    logger.info("Reporting summary information about all the input data.")
     report_and_eval.report_df_info_with_names(genetic_data, n=5)
     report_and_eval.report_df_info_with_names({"additional": additional, "y": y}, n=5)
 
     training_inds = pd.read_csv(TRAIN_SET_INDS_F, usecols=["id", "response"], index_col="id").index.tolist()
     evaluation_inds = pd.read_csv(EVALUATION_SET_INDS_F, usecols=["id", "response"], index_col="id").index.tolist()
 
-    logging.info("Defining the hyperparameters of the modeling run")
+    logger.info("Defining the hyperparameters of the modeling run")
     hparams = {
         "wandb_run_id_that_created_inputs": input_data_wandb_id,
         "nbr_gene_inputs": len(genetic_data),
@@ -225,10 +222,10 @@ def main():
         "perturbed_data_dir": args.perturbed_data_dir,
     }
 
-    logging.info("Adding hyperparameters and run metadata to Weights and Biases")
+    logger.info("Adding hyperparameters and run metadata to Weights and Biases")
     wandb.config.update(hparams)
     if MODEL_TYPE in ["rf", "bdt"]:
-        logging.info("Loading data and making data splits")
+        logger.info("Loading data and making data splits")
         train_dataset, test_dataset = pnet_loader.generate_train_test(
             genetic_data,
             additional_data=additional,
@@ -237,7 +234,7 @@ def main():
             test_inds=evaluation_inds,
             gene_set=None,
         )
-        logging.info(
+        logger.info(
             "Merging the genetic data and additional data (e.g. confounders). Updating the input_df and x attributes."
         )
         train_dataset.input_df = pd.concat([train_dataset.input_df, train_dataset.additional_data], axis=1)
@@ -256,7 +253,7 @@ def main():
     elif MODEL_TYPE == "bdt":
         model = model_selection.run_bdt(x_train, y_train, random_seed=None)
         # TODO: start here 2/15. Unsure if test_dataset.input or test_dataset.x is appropriate for the get_deviance function.
-        logging.info("Making deviance plots to check convergence/overfitting for model")
+        logger.info("Making deviance plots to check convergence/overfitting for model")
         train_scores, test_scores = report_and_eval.get_deviance(model, x_test, y_test)
         plt = report_and_eval.get_loss_plot(
             train_losses=train_scores,
@@ -272,7 +269,7 @@ def main():
         plt.show()
 
     if MODEL_TYPE == "pnet":
-        logging.info("Train with Pnet.run()")
+        logger.info("Train with Pnet.run()")
         model, train_losses, test_losses, train_dataset, test_dataset = Pnet.run(
             genetic_data,
             y,
@@ -299,14 +296,14 @@ def main():
             aux_loss_weights=[2, 7, 20, 54, 148, 400],
         )
 
-        logging.info("Check model convergence by examining the plot of how loss changes over time")
+        logger.info("Check model convergence by examining the plot of how loss changes over time")
         plt = report_and_eval.get_loss_plot(train_losses=train_losses, test_losses=test_losses)
         report_and_eval.savefig(plt, os.path.join(SAVE_DIR, "loss_over_time"))
         # instead of doing plt.show() do: # see https://docs.wandb.ai/guides/integrations/scikit
         wandb.log({"convergence plot": plt})
         plt.show()
 
-    logging.info(
+    logger.info(
         f"Get the model predictions (preds and probas), performance metrics, feature importances, and save the results to {SAVE_DIR}."
     )
     report_and_eval.evaluate_interpret_save(
@@ -316,7 +313,7 @@ def main():
         model=model, pnet_dataset=test_dataset, model_type=MODEL_TYPE, who=EVALUATION_SET, save_dir=SAVE_DIR
     )
 
-    logging.info("ending wandb run")
+    logger.info("ending wandb run")
     wandb.finish()
     return wandb_run_id
 

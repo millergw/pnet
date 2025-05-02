@@ -15,13 +15,12 @@ from pnet import Pnet, data_manipulation, model_selection, pnet_loader, prostate
 logging.basicConfig(
     filename="run_pnet.log",
     encoding="utf-8",
-    format="%(asctime)s %(levelname)-8s %(message)s",
+    format="%(asctime)s %(levelname)-8s [%(name)s] %(message)s",
     level=logging.INFO,
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 def parse_arguments():
@@ -81,7 +80,7 @@ def main():
     This means we will need to be carefull with our input germline dataset if we want to keep all the somatic data.
     """
 
-    logging.debug("Parsing command-line arguments")
+    logger.debug("Parsing command-line arguments")
     args = parse_arguments()
 
     WANDB_GROUP = args.wandb_group
@@ -112,7 +111,7 @@ def main():
     if WANDB_GROUP != "":
         SAVE_DIR = f"../results/{WANDB_GROUP}/{MODEL_TYPE}_eval_set_{EVALUATION_SET}_variantQCed_wandbID_{wandb.run.id}"
 
-    logging.debug("Define file paths based on directories")
+    logger.debug("Define file paths based on directories")
     somatic_mut_f = os.path.join(SOMATIC_DATADIR, "P1000_final_analysis_set_cross_important_only.csv")
     somatic_cnv_f = os.path.join(SOMATIC_DATADIR, "P1000_data_CNA_paper.csv")
     germline_vars_f = os.path.join(
@@ -123,7 +122,7 @@ def main():
     sample_metadata_f = os.path.join(
         GERMLINE_DATADIR, "prostate/pathogenic_variants_with_clinical_annotation_1341_aug2021_correlation.csv"
     )
-    logging.debug("Defining path(s) for the confounder/clincial/additional data")
+    logger.debug("Defining path(s) for the confounder/clincial/additional data")
     additional_f = sample_metadata_f
     TRAIN_SET_INDS_F = os.path.join(SPLITS_DIR, "training_set.csv")
     EVALUATION_SET_INDS_F = os.path.join(SPLITS_DIR, f"{EVALUATION_SET}_set.csv")
@@ -157,7 +156,7 @@ def main():
     if (
         USE_ONLY_PAIRED
     ):  # want to run stuff if paired; note that this will only work correctly if the IDs are correctly harmonized
-        logging.info("Restrict to overlapping samples (the indices)")
+        logger.info("Restrict to overlapping samples (the indices)")
         somatic_mut, somatic_amp, somatic_del, germline_mut, additional, y = (
             data_manipulation.restrict_to_overlapping_indices(
                 somatic_mut, somatic_amp, somatic_del, germline_mut, additional, y
@@ -177,7 +176,7 @@ def main():
         zero_impute_somatic=ZERO_IMPUTE_SOMATIC,
     )
 
-    logging.info(
+    logger.info(
         "Now that we have processed all our datasets, we restrict to just the overlapping genes (the columns) (and further filter to those that fit some TCGA criteria)"
     )
     somatic_mut, somatic_amp, somatic_del, germline_mut = prostate_data_loaders.restrict_to_genes_in_common(
@@ -193,7 +192,7 @@ def main():
     )
     report_and_eval.report_df_info_with_names(df_dict, n=5)
 
-    logging.info(
+    logger.info(
         "Finished preparing data format. Now left with: making train/val/test splits, setting up model, running model, evaluate model"
     )
 
@@ -206,12 +205,12 @@ def main():
     }
 
     genetic_data = {key: genetic_data[key] for key in DATASETS_TO_USE if key in genetic_data}
-    logging.info(f"Dictionary keys of datasets we will use: {genetic_data.keys()}")
+    logger.info(f"Dictionary keys of datasets we will use: {genetic_data.keys()}")
 
     training_inds = pd.read_csv(TRAIN_SET_INDS_F, usecols=["id", "response"], index_col="id").index.tolist()
     evaluation_inds = pd.read_csv(EVALUATION_SET_INDS_F, usecols=["id", "response"], index_col="id").index.tolist()
 
-    logging.info("Defining the hyperparameters of the modeling run")
+    logger.info("Defining the hyperparameters of the modeling run")
     hparams = {
         "nbr_gene_inputs": len(genetic_data),
         "dropout": 0.2,
@@ -237,10 +236,10 @@ def main():
         "save_dir": SAVE_DIR,
     }
 
-    logging.info("Adding hyperparameters and run metadata to Weights and Biases")
+    logger.info("Adding hyperparameters and run metadata to Weights and Biases")
     wandb.config.update(hparams)
     if MODEL_TYPE in ["rf", "bdt"]:
-        logging.info("Loading data and making data splits")
+        logger.info("Loading data and making data splits")
         train_dataset, test_dataset = pnet_loader.generate_train_test(
             genetic_data,
             additional_data=additional,
@@ -249,7 +248,7 @@ def main():
             test_inds=evaluation_inds,
             gene_set=None,
         )
-        logging.info(
+        logger.info(
             "Merging the genetic data and additional data (e.g. confounders). Updating the input_df and x attributes."
         )
         train_dataset.input_df = pd.concat([train_dataset.input_df, train_dataset.additional_data], axis=1)
@@ -268,7 +267,7 @@ def main():
     elif MODEL_TYPE == "bdt":
         model = model_selection.run_bdt(x_train, y_train, random_seed=None)
         # TODO: start here 2/15. Unsure if test_dataset.input or test_dataset.x is appropriate for the get_deviance function.
-        logging.info("Making deviance plots to check convergence/overfitting for model")
+        logger.info("Making deviance plots to check convergence/overfitting for model")
         train_scores, test_scores = report_and_eval.get_deviance(model, x_test, y_test)
         plt = report_and_eval.get_loss_plot(
             train_losses=train_scores,
@@ -284,7 +283,7 @@ def main():
         plt.show()
 
     if MODEL_TYPE == "pnet":
-        logging.info("Train with Pnet.run()")
+        logger.info("Train with Pnet.run()")
         model, train_losses, test_losses, train_dataset, test_dataset = Pnet.run(
             genetic_data,
             y,
@@ -311,14 +310,14 @@ def main():
             aux_loss_weights=[2, 7, 20, 54, 148, 400],
         )
 
-        logging.info("Check model convergence by examining the plot of how loss changes over time")
+        logger.info("Check model convergence by examining the plot of how loss changes over time")
         plt = report_and_eval.get_loss_plot(train_losses=train_losses, test_losses=test_losses)
         report_and_eval.savefig(plt, os.path.join(SAVE_DIR, "loss_over_time"))
         # instead of doing plt.show() do: # see https://docs.wandb.ai/guides/integrations/scikit
         wandb.log({"convergence plot": plt})
         plt.show()
 
-    logging.info(
+    logger.info(
         f"Get the model predictions, performance metrics, feature importances, and save the results to {SAVE_DIR}."
     )
     report_and_eval.evaluate_interpret_save(
@@ -328,7 +327,7 @@ def main():
         model=model, pnet_dataset=test_dataset, model_type=MODEL_TYPE, who=EVALUATION_SET, save_dir=SAVE_DIR
     )
 
-    logging.info("ending wandb run")
+    logger.info("ending wandb run")
     wandb.finish()
     return wandb_run_id
 

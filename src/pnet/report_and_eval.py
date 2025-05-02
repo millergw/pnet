@@ -43,14 +43,14 @@ def make_path_if_needed(file_path):
 
 def make_dir_if_needed(directory):
     if not os.path.isdir(directory) and directory != "":
-        logging.debug(f"Directory did not exist; making directory {directory}")
+        logger.debug(f"Directory did not exist; making directory {directory}")
         os.makedirs(directory)
     return
 
 
 def savefig(plt, save_path, png=True, pdf=True):
     make_path_if_needed(save_path)
-    logging.info(f"saving plot to {save_path}")
+    logger.info(f"saving plot to {save_path}")
     if png:
         plt.savefig(save_path, bbox_inches="tight")
     if pdf:
@@ -141,7 +141,7 @@ def get_loss_plot(
     ylabel="Loss",
     xlabel="Epochs",
 ):
-    logging.info("Making a loss plot over time")
+    logger.info("Making a loss plot over time")
     # Sample data
     epochs = range(1, len(train_losses) + 1)
 
@@ -173,12 +173,12 @@ def get_pnet_preds_and_probs(model, pnet_dataset):
     model.to("cpu")
     x = pnet_dataset.x
     additional = pnet_dataset.additional
-    logging.debug("Running `get_pnet_preds_and_probs`.\nSanitize for logging and downstream use (.detach().cpu())")
+    logger.debug("Running `get_pnet_preds_and_probs`.\nSanitize for logging and downstream use (.detach().cpu())")
     pred_probas = model.predict_proba(x, additional).detach().cpu()
     preds = model.predict(x, additional).detach().cpu()
 
-    logging.debug(f"Shape of pred_probas from `model.predict_proba`: {pred_probas.shape}")
-    logging.debug(f"Type of pred_probas from `model.predict_proba`: {type(pred_probas)}")
+    logger.debug(f"Shape of pred_probas from `model.predict_proba`: {pred_probas.shape}")
+    logger.debug(f"Type of pred_probas from `model.predict_proba`: {type(pred_probas)}")
 
     # Ensure preds is 1D
     if preds.dim() > 1:
@@ -192,23 +192,23 @@ def get_pnet_preds_and_probs(model, pnet_dataset):
     preds = preds.numpy()
     pred_probas = pred_probas.numpy()
 
-    logging.debug(f"Shape of preds: {preds.shape}")
-    logging.debug(f"Shape of pred_probas: {pred_probas.shape}")
-    logging.debug(f"Type of preds: {type(preds)}")
-    logging.debug(f"Type of pred_probas: {type(pred_probas)}")
+    logger.debug(f"Shape of preds: {preds.shape}")
+    logger.debug(f"Shape of pred_probas: {pred_probas.shape}")
+    logger.debug(f"Type of preds: {type(preds)}")
+    logger.debug(f"Type of pred_probas: {type(pred_probas)}")
 
     return preds, pred_probas
 
 
 def prepare_labels(y):
-    logging.debug("Preparing labels")
-    logging.debug(f"Start y[0:5]: {y[0:5]}")
+    logger.debug("Preparing labels")
+    logger.debug(f"Start y[0:5]: {y[0:5]}")
     if hasattr(y, "detach"):
         y = y.detach().cpu()
     if hasattr(y, "numpy"):
         y = y.numpy()
     y = np.asarray(y).squeeze().tolist()
-    logging.debug(f"Finish y[0:5]: {y[0:5]}")
+    logger.debug(f"Finish y[0:5]: {y[0:5]}")
     return y
 
 
@@ -236,19 +236,19 @@ def get_performance_metrics(who, y_trues, y_preds, y_probas, save_dir=None):
         f"{who}_classification report\n": classification_report(y_trues, y_preds, output_dict=True),
     }
 
-    logging.info(f"{who} set metrics:")
+    logger.info(f"{who} set metrics:")
     for k, v in metric_dict.items():
-        logging.info(f"{k}: {v}")
+        logger.info(f"{k}: {v}")
 
     if save_dir is not None:
         make_dir_if_needed(save_dir)
         p = os.path.join(save_dir, f"{who}_performance_metrics.json")
-        logging.info(f"Saving dictionary of {who} set metrics to {p}")
+        logger.info(f"Saving dictionary of {who} set metrics to {p}")
         with open(p, "w") as json_file:
             json.dump(metric_dict, json_file)
 
     # TODO: should I break the W&B pieces into a different function?
-    logging.info(f"Saving {who} set metrics to W&B:")
+    logger.info(f"Saving {who} set metrics to W&B:")
     for k, v in metric_dict.items():
         wandb.run.summary[k] = v
 
@@ -267,7 +267,7 @@ def log_plots_to_wandb(who, y_trues, y_preds, y_probas_2col):
     y_trues = prepare_labels(y_trues)
     y_preds = prepare_labels(y_preds)
 
-    logging.info(f"Logging plots to W&B for {who} set")
+    logger.info(f"Logging plots to W&B for {who} set")
     wandb.log(
         {
             f"{who}_confusion_matrix_plot": wandb.plot.confusion_matrix(
@@ -281,7 +281,7 @@ def log_plots_to_wandb(who, y_trues, y_preds, y_probas_2col):
 
 
 def get_summary_metrics_wandb(model, x_train, y_train, x_test, y_test):
-    logging.info("Logging plot summary metrics to W&B")
+    logger.info("Logging plot summary metrics to W&B")
     wandb.sklearn.plot_summary_metrics(model, x_train, y_train, x_test, y_test)
     return
 
@@ -302,7 +302,7 @@ def get_train_test_manual_split(x, y, train_inds, test_inds):
     - y_train: Labels for the training set.
     - y_test: Labels for the testing set.
     """
-    logging.info("CAUTION: this `get_train_test_manual_split` is an untested function. TODO: check functionality.")
+    logger.info("CAUTION: this `get_train_test_manual_split` is an untested function. TODO: check functionality.")
 
     # Assuming 'x' is a NumPy array or pandas DataFrame
     X_train = x[train_inds]
@@ -316,15 +316,15 @@ def get_train_test_manual_split(x, y, train_inds, test_inds):
 
 
 def get_model_preds_and_probs(model, who, model_type="pnet", pnet_dataset=None, x=None, verbose=False):
-    logging.info(f"Model_type = {model_type}. Computing model predictions on {who} set")
+    logger.info(f"Model_type = {model_type}. Computing model predictions on {who} set")
     if model_type == "pnet":
         y_preds, y_probas = get_pnet_preds_and_probs(model, pnet_dataset)
     elif model_type in ["rf", "bdt"]:
         y_preds, y_probas = get_sklearn_model_preds_and_probs(model, x)
     else:
-        logging.error(f"We haven't implemented for the model type you specified, which was {model_type}")
+        logger.error(f"We haven't implemented for the model type you specified, which was {model_type}")
     if verbose:
-        logging.info(f"Hist of model prediction probabilities on {who} set")
+        logger.info(f"Hist of model prediction probabilities on {who} set")
         plt.hist(y_probas)
         plt.show()
     return y_preds, y_probas
@@ -334,10 +334,10 @@ def get_sklearn_model_preds_and_probs(sklearn_model, x):
     preds = sklearn_model.predict(x)
     pred_probs = sklearn_model.predict_proba(x)
 
-    logging.debug(f"Shape of preds: {preds.shape}")
-    logging.debug(f"Shape of pred_probas: {pred_probs.shape}")
-    logging.debug(f"Type of preds: {type(preds)}")
-    logging.debug(f"Type of pred_probas: {type(pred_probs)}")
+    logger.debug(f"Shape of preds: {preds.shape}")
+    logger.debug(f"Shape of pred_probas: {pred_probs.shape}")
+    logger.debug(f"Type of preds: {type(preds)}")
+    logger.debug(f"Type of pred_probas: {type(pred_probs)}")
 
     return preds, pred_probs
 
@@ -348,14 +348,14 @@ def get_sklearn_feature_importances(sklearn_model, who, input_df, save_dir=None)
         importances, index=input_df.columns
     )  # TODO: check if this is the correct index
     # TODO: edit so that it's a better format when saved down
-    logging.debug(
+    logger.debug(
         "Editing DF format so that we just have two columns to save down. This makes the read-in format much nicer."
     )
     gene_feature_importances = gene_feature_importances.reset_index()
     gene_feature_importances.columns = ["feature", "importance score"]
     if save_dir is not None:
         make_dir_if_needed(save_dir)
-        logging.info(f"Saving feature importance information to {save_dir}")
+        logger.info(f"Saving feature importance information to {save_dir}")
         gene_feature_importances.to_csv(os.path.join(save_dir, f"{who}_gene_feature_importances.csv"), index=False)
         # wandb.save(f'{who}_gene_feature_importances.csv', base_path=save_dir, policy="end") # TODO: problem. save_dir is above current dir, and this isn't allowed.
     return gene_feature_importances
@@ -374,7 +374,7 @@ def get_pnet_feature_importances(model, who, pnet_dataset, save_dir=None):
 
     if save_dir is not None:
         make_dir_if_needed(save_dir)
-        logging.info(f"Saving feature importance information to {save_dir}")
+        logger.info(f"Saving feature importance information to {save_dir}")
         gene_feature_importances.to_csv(os.path.join(save_dir, f"{who}_gene_feature_importances.csv"))
         additional_feature_importances.to_csv(os.path.join(save_dir, f"{who}_additional_feature_importances.csv"))
         gene_importances.to_csv(os.path.join(save_dir, f"{who}_gene_importances.csv"))
@@ -415,7 +415,7 @@ def save_predictions_and_probs(save_dir, who, y_true, y_preds, y_probas, indices
     results_df = pd.DataFrame(results_dict)
     results_path = os.path.join(save_dir, f"{who}_predictions_and_probs.csv")
     results_df.to_csv(results_path, index=False)
-    logging.info(f"Saved predictions, probabilities, and indices to {results_path}.")
+    logger.info(f"Saved predictions, probabilities, and indices to {results_path}.")
     return results_df
 
 
@@ -426,23 +426,23 @@ def evaluate_interpret_save(model, who, model_type, pnet_dataset=None, x=None, y
     """
     if save_dir is not None:
         make_dir_if_needed(save_dir)
-        logging.info(f"Results will be saved to {save_dir}.")
+        logger.info(f"Results will be saved to {save_dir}.")
 
     # TODO: need a universal way to get the X vs y components of the `pnet_dataset`
     if model_type == "pnet":
         y = pnet_dataset.y.detach().cpu().squeeze().numpy()
-        logging.info(
+        logger.info(
             f"Getting the {model_type} model predictions on the {who} set, performance metrics, and feature importances (if applicable)"
         )
         y_preds, y_probas = get_model_preds_and_probs(
             model=model, pnet_dataset=pnet_dataset, who=who, model_type=model_type
         )
-        logging.debug(f"Shape of y_preds: {y_preds.shape}")
-        logging.debug(f"Shape of y_probas: {y_probas.shape}")
-        logging.debug(f"Shape of y: {y.shape}")
-        logging.debug(f"Type of y_preds (should be numpy): {type(y_preds)}")
-        logging.debug(f"Type of y_probas (should be numpy): {type(y_probas)}")
-        logging.debug(f"Type of y (should be numpy): {type(y)}")
+        logger.debug(f"Shape of y_preds: {y_preds.shape}")
+        logger.debug(f"Shape of y_probas: {y_probas.shape}")
+        logger.debug(f"Shape of y: {y.shape}")
+        logger.debug(f"Type of y_preds (should be numpy): {type(y_preds)}")
+        logger.debug(f"Type of y_probas (should be numpy): {type(y_probas)}")
+        logger.debug(f"Type of y (should be numpy): {type(y)}")
 
         save_predictions_and_probs(
             save_dir, who, y, y_preds, y_probas, indices=pnet_dataset.input_df.index.tolist()
@@ -468,7 +468,7 @@ def evaluate_interpret_save(model, who, model_type, pnet_dataset=None, x=None, y
         )
 
     elif model_type in ["rf", "bdt"]:
-        logging.info(
+        logger.info(
             f"Getting the {model_type} model predictions on the {who} set, performance metrics, and feature importances (if applicable)"
         )
         x = pnet_dataset.x
@@ -485,19 +485,19 @@ def evaluate_interpret_save(model, who, model_type, pnet_dataset=None, x=None, y
         return gene_feature_importances
 
     else:
-        logging.error(f"We haven't implemented for the model type you specified, which was {model_type}")
+        logger.error(f"We haven't implemented for the model type you specified, which was {model_type}")
     return
 
 
 def save_as_file_to_wandb(data, filename, policy="now", delete_local=True):
-    logging.info(f"Temporarily save down to {filename}, upload to WandB.")
+    logger.info(f"Temporarily save down to {filename}, upload to WandB.")
     if not isinstance(data, pd.DataFrame):
-        logging.warn(f"Expected a DF as input; converting {type(data)} object to pandas DF before saving.")
+        logger.warn(f"Expected a DF as input; converting {type(data)} object to pandas DF before saving.")
         data = pd.DataFrame(data)
     data.to_csv(filename)
     wandb.save(filename, policy=policy)
     if delete_local:
-        logging.info(f"Deleting the temporary file at {filename}")
+        logger.info(f"Deleting the temporary file at {filename}")
         os.remove(filename)
     return
 

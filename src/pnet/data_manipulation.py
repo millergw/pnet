@@ -12,14 +12,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-logging.basicConfig(
-    format="%(asctime)s %(levelname)-8s %(message)s",
-    level=logging.INFO,
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-
-logger = logging.getLogger()
-# logger.setLevel(logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 ##############################
@@ -29,10 +22,10 @@ logger = logging.getLogger()
 
 def remove_whitespace_from_df(df):
     """Remove all leading and trailing whitespace from DF column names and every cell"""
-    logging.debug("Remove leading and trailing whitespace from every cell")
+    logger.debug("Remove leading and trailing whitespace from every cell")
     df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)
 
-    logging.debug("Remove leading and trailing whitespace from column names")
+    logger.debug("Remove leading and trailing whitespace from column names")
     df.columns = df.columns.str.strip()
     return df
 
@@ -45,7 +38,7 @@ def make_path_if_needed(file_path):
 
 def make_dir_if_needed(directory):
     if not os.path.isdir(directory):
-        logging.debug(f"Directory did not exist; making directory {directory}")
+        logger.debug(f"Directory did not exist; making directory {directory}")
         os.makedirs(directory)
     return
 
@@ -62,7 +55,7 @@ def get_files_with_suffix_from_dir(dir_path, suffix):
 
 def savefig(save_path, png=True, svg=True):
     make_path_if_needed(save_path)
-    logging.info(f"saving plot to {save_path}")
+    logger.info(f"saving plot to {save_path}")
     if png:
         plt.savefig(save_path, bbox_inches="tight")
     if svg:
@@ -101,10 +94,10 @@ def find_mapping(list_a, list_b, reverse_dict=False):
             if a in b:
                 mapping[a] = b
                 break
-    logging.debug(f"Found matches for a total of {len(mapping)} out of {len(list_a)} items.")
+    logger.debug(f"Found matches for a total of {len(mapping)} out of {len(list_a)} items.")
     if reverse_dict is True:  # TODO: need to check what happens if the values are not unique
-        logging.info("Reversing the dict so the superstrings are the keys and the substrings are the values")
-        logging.info(
+        logger.info("Reversing the dict so the superstrings are the keys and the substrings are the values")
+        logger.info(
             f"len(set(mapping.values())) == len(mapping.values()): {len(set(mapping.values())) == len(mapping.values())}"
         )
         reversed_dict = {value: key for key, value in mapping.items()}
@@ -113,86 +106,86 @@ def find_mapping(list_a, list_b, reverse_dict=False):
 
 
 def find_overlapping_columns(*dataframes):
-    logging.info(f"Finding overlapping columns in the given list of {len(dataframes)} datasets")
-    logging.debug("Ensure that at least two DataFrames are provided")
+    logger.info(f"Finding overlapping columns in the given list of {len(dataframes)} datasets")
+    logger.debug("Ensure that at least two DataFrames are provided")
     if len(dataframes) < 2:
         raise ValueError("At least two DataFrames are required for finding overlaps.")
 
-    logging.debug("Extract column names from each DataFrame and convert them to sets")
+    logger.debug("Extract column names from each DataFrame and convert them to sets")
     column_sets = [set(df.columns) for df in dataframes]
 
-    logging.debug("Find the intersection of all sets to get overlapping columns")
+    logger.debug("Find the intersection of all sets to get overlapping columns")
     overlapping_columns = list(set.intersection(*column_sets))
 
-    logging.info(f"We found {len(overlapping_columns)} overlapping columns")
+    logger.info(f"We found {len(overlapping_columns)} overlapping columns")
     return overlapping_columns
 
 
 def find_overlapping_indices(*dataframes):
-    logging.info("Finding overlapping indicies in the given {len(dataframes)} datasets")
-    logging.debug("Ensure that at least two DataFrames are provided")
+    logger.info("Finding overlapping indicies in the given {len(dataframes)} datasets")
+    logger.debug("Ensure that at least two DataFrames are provided")
     if len(dataframes) < 2:
         raise ValueError("At least two DataFrames are required for finding overlaps.")
 
-    logging.debug("Extract index names from each DataFrame and convert them to sets")
+    logger.debug("Extract index names from each DataFrame and convert them to sets")
     indices_sets = [set(df.index) for df in dataframes]
-    logging.debug("first 5 elements from each set in indices_sets")
+    logger.debug("first 5 elements from each set in indices_sets")
     for i, indices_set in enumerate(indices_sets):
-        logging.debug(f"Set {i}: {list(indices_set)[:5]}")
+        logger.debug(f"Set {i}: {list(indices_set)[:5]}")
 
-    logging.debug("Find the intersection of all sets to get overlapping indices")
+    logger.debug("Find the intersection of all sets to get overlapping indices")
     overlapping_indices = list(set.intersection(*indices_sets))
 
-    logging.info(f"We found {len(overlapping_indices)} overlapping indices")
+    logger.info(f"We found {len(overlapping_indices)} overlapping indices")
     return overlapping_indices
 
 
 def find_overlapping_elements(*arrays):
-    logging.debug("Ensure that at least two arrays are provided")
+    logger.debug("Ensure that at least two arrays are provided")
     if len(arrays) < 2:
         raise ValueError("At least two arrays are required for finding overlaps.")
 
-    logging.debug("Get the elements of the first array")
+    logger.debug("Get the elements of the first array")
     overlapping_elements = set(arrays[0])
 
-    logging.debug("Find the intersection with each subsequent array")
+    logger.debug("Find the intersection with each subsequent array")
     for a in arrays[1:]:
         overlapping_elements = overlapping_elements.intersection(a)
 
-    logging.info(f"We found {len(overlapping_elements)} overlapping elements")
+    logger.info(f"We found {len(overlapping_elements)} overlapping elements")
     return list(overlapping_elements)
 
 
 def restrict_to_overlapping_indices(*dataframes):
-    logging.debug("Find the overlapping indices among all DataFrames")
+    logger.debug("Find the overlapping indices among all DataFrames")
     overlapping_indices = find_overlapping_indices(*dataframes)
-    logging.info(
+    logger.info(
         f"The number of overlapping indices among the {len(dataframes)} dataframes is {len(overlapping_indices)}."
     )
 
-    logging.info(f"Restricting each DataFrame to the {len(overlapping_indices)} overlapping indices")
+    logger.info(f"Restricting each DataFrame to the {len(overlapping_indices)} overlapping indices")
     restricted_dataframes = []
     for df in dataframes:
-        logging.debug(f"Shape before: {df.shape}")
+        logger.debug(f"Shape before: {df.shape}")
         restricted_df = df.loc[overlapping_indices]
-        logging.debug(f"Shape after: {restricted_df.shape}")
+        logger.debug(f"Shape after: {restricted_df.shape}")
         restricted_dataframes.append(restricted_df)
     return restricted_dataframes
 
 
 def restrict_to_overlapping_columns(*dataframes):
-    logging.debug("Find the overlapping columns among all DataFrames")
+    logger.debug("Find the overlapping columns among all DataFrames")
     overlapping_columns = find_overlapping_columns(*dataframes)
-    logging.info(
+    logger.info(
         f"The number of overlapping columns amoung the {len(dataframes)} dataframes is {len(overlapping_columns)}."
     )
 
-    logging.debug("Restricting each DataFrame to the overlapping columns")
+    logger.debug("Restricting each DataFrame to the overlapping columns")
     restricted_dataframes = []
     for df in dataframes:
-        logging.debug(f"Shape before: {df.shape}")
+        logger.debug(f"Shape before: {df.shape}")
         restricted_df = df[overlapping_columns]
-        logging.debug(f"Shape after: {restricted_df.shape}")
+        logger.debug(f"Shape after: {restricted_df.shape}")
         restricted_dataframes.append(restricted_df)
     return restricted_dataframes
 
@@ -201,9 +194,9 @@ def filter_to_specified_indices(indices, *dataframes):
     # Restrict each DataFrame to the specified indices
     restricted_dataframes = []
     for df in dataframes:
-        logging.debug(f"Shape before: {df.shape}")
+        logger.debug(f"Shape before: {df.shape}")
         restricted_df = df.loc[indices]
-        logging.debug(f"Shape after: {restricted_df.shape}")
+        logger.debug(f"Shape after: {restricted_df.shape}")
         restricted_dataframes.append(restricted_df)
     return restricted_dataframes
 
@@ -212,18 +205,18 @@ def filter_to_specified_columns(columns, *dataframes):
     # Restrict each DataFrame to the specified columns
     restricted_dataframes = []
     for df in dataframes:
-        logging.debug(f"Shape before: {df.shape}")
+        logger.debug(f"Shape before: {df.shape}")
         restricted_df = df[columns]
-        logging.debug(f"Shape after: {restricted_df.shape}")
+        logger.debug(f"Shape after: {restricted_df.shape}")
         restricted_dataframes.append(restricted_df)
     return restricted_dataframes
 
 
 def load_df_verbose(f):
-    logging.info(f"loading file at {f}")
+    logger.info(f"loading file at {f}")
     df = pd.read_csv(f)
-    logging.debug(df.head())
-    logging.debug(df.shape)
+    logger.debug(df.head())
+    logger.debug(df.shape)
     return df
 
 
@@ -274,12 +267,12 @@ def drop_na_index_rows(df):
     print("\nDataFrame after dropping rows with missing index values:")
     print(cleaned_df)
     """
-    logging.debug("Dropping rows with NaN index values")
-    logging.debug(f"Shape before: {df.shape}")
+    logger.debug("Dropping rows with NaN index values")
+    logger.debug(f"Shape before: {df.shape}")
     cleaned_df = df[~df.index.isna()]
-    logging.debug(f"Shape after: {cleaned_df.shape}")
+    logger.debug(f"Shape after: {cleaned_df.shape}")
     if cleaned_df.shape != df.shape:
-        logging.info(f"Dropped {df.shape[0] - cleaned_df.shape[0]} rows with missing index values")
+        logger.info(f"Dropped {df.shape[0] - cleaned_df.shape[0]} rows with missing index values")
     return cleaned_df
 
 
@@ -294,10 +287,10 @@ def impute_cols_with_a_constant(df, new_col_names, fill=0):
     The point here is to be able to pass mutiple dataframes in
     """
     new_col_names = list(new_col_names)
-    logging.info(f"Shape before {fill}-imputation: {df.shape}")
-    logging.info(f"We have {len(new_col_names)} features to add as a column of all {fill}'s")
+    logger.info(f"Shape before {fill}-imputation: {df.shape}")
+    logger.info(f"We have {len(new_col_names)} features to add as a column of all {fill}'s")
     df = df.reindex(columns=df.columns.tolist() + new_col_names).fillna(fill)
-    logging.info(f"Shape after {fill}-imputation: {df.shape}")
+    logger.info(f"Shape after {fill}-imputation: {df.shape}")
     return df
 
 
@@ -309,10 +302,10 @@ def impute_cols_with_a_constant_v2(new_col_names, fill=0, *dataframes):
     new_col_names = list(new_col_names)
     imputed_dataframes = []
     for df in dataframes:
-        logging.info(f"Shape before {fill}-imputation: {df.shape}")
-        logging.info(f"We have {len(new_col_names)} features to add as a column of all {fill}'s")
+        logger.info(f"Shape before {fill}-imputation: {df.shape}")
+        logger.info(f"We have {len(new_col_names)} features to add as a column of all {fill}'s")
         imputed_df = df.reindex(columns=df.columns.tolist() + new_col_names).fillna(fill)
-        logging.info(f"Shape after {fill}-imputation: {imputed_df.shape}")
+        logger.info(f"Shape after {fill}-imputation: {imputed_df.shape}")
         imputed_dataframes.append(imputed_df)
     return dataframes
 
@@ -336,15 +329,15 @@ def convert_values(input_value, source, target):
     if len(source) != len(target):
         raise ValueError("Input lists must have the same length.")
 
-    logging.debug("Converting input by creating a dictionary to map values from 'source' to 'target'")
+    logger.debug("Converting input by creating a dictionary to map values from 'source' to 'target'")
     value_mapping = dict(zip(source, target))
 
-    logging.debug("Initialize lists to track converted and unconverted items")
+    logger.debug("Initialize lists to track converted and unconverted items")
     converted_items = []
     unconverted_items = []
 
     if isinstance(input_value, list):
-        logging.debug("If input_value is a list, convert each element")
+        logger.debug("If input_value is a list, convert each element")
         for item in input_value:
             converted_value = value_mapping.get(item, None)
             if converted_value is not None:
@@ -353,7 +346,7 @@ def convert_values(input_value, source, target):
                 converted_items.append(np.nan)
                 unconverted_items.append(item)
     else:
-        logging.debug("If input_value is a single value, convert it")
+        logger.debug("If input_value is a single value, convert it")
         converted_value = value_mapping.get(input_value, None)
         if converted_value is not None:
             converted_items.append(converted_value)
@@ -361,7 +354,7 @@ def convert_values(input_value, source, target):
             converted_items.append(np.nan)
             unconverted_items.append(input_value)
 
-    logging.debug(f"{len(converted_items)} converted: {converted_items}")
+    logger.debug(f"{len(converted_items)} converted: {converted_items}")
     if len(unconverted_items) > 0:
-        logging.warn(f"{len(unconverted_items)} couldn't be converted: {unconverted_items}")
+        logger.warn(f"{len(unconverted_items)} couldn't be converted: {unconverted_items}")
     return converted_items

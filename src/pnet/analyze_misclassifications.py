@@ -15,16 +15,7 @@ import wandb
 # personal scripts
 from pnet import Pnet, ReactomeNetwork, pnet_loader, report_and_eval
 
-logging.basicConfig(
-    filename="run_pnet.log",
-    encoding="utf-8",
-    format="%(asctime)s %(levelname)-8s %(message)s",
-    level=logging.INFO,
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 # adapted from https://github.com/wandb/wandb/issues/2939 to help W&B sweep
@@ -44,7 +35,7 @@ def fetch_run_config(run_id, project_name):
         config = run.config
         return config
     except wandb.errors.CommError as e:
-        logging.error(f"Failed to fetch WandB run with ID {run_id}: {e}")
+        logger.error(f"Failed to fetch WandB run with ID {run_id}: {e}")
         raise
 
 
@@ -98,7 +89,7 @@ def fetch_model_parameters(run_config, train_dataset):
     #     "additional_dims": train_dataset.additional_data.shape[1]
     # }
 
-    logging.info(f"Setting additional_dims dynamically: {hparams['additional_dims']}")
+    logger.info(f"Setting additional_dims dynamically: {hparams['additional_dims']}")
     return hparams
 
 
@@ -129,7 +120,7 @@ def load_model_weights(model, path_to_model):
     Returns:
         model (torch.nn.Module): Model with loaded weights in evaluation mode.
     """
-    logging.info(f"Loading pre-trained model from {path_to_model}")
+    logger.info(f"Loading pre-trained model from {path_to_model}")
     # Ensure compatibility across devices
     map_location = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     state_dict = torch.load(path_to_model, map_location=map_location)
@@ -159,11 +150,11 @@ def main():
     run_ids = args.wandb_run_ids.split(",")
 
     # Fetch first run's config to load data
-    logging.info(f"Fetching first run's config to load data (run ID {run_ids[0]} from project {args.wandb_project})")
+    logger.info(f"Fetching first run's config to load data (run ID {run_ids[0]} from project {args.wandb_project})")
     run_config = fetch_run_config(run_ids[0], args.wandb_project)
 
     # Load genetic data, additional data, and target labels (only once)
-    logging.info("Loading genetic data, additional data, and target labels.")
+    logger.info("Loading genetic data, additional data, and target labels.")
     config = read_config(run_config["data_config_f"])
     INPUT_DATA_DIR = run_config["input_data_dir"]
 
@@ -178,9 +169,9 @@ def main():
     additional = config["confounder_data"]["df"]
     y = config["target"]["df"]
     genetic_data = {key: config["genetic_data"][key]["df"] for key in run_config["dataset"]}
-    logging.info(f"Loaded datasets: {list(genetic_data.keys())}")
+    logger.info(f"Loaded datasets: {list(genetic_data.keys())}")
 
-    logging.info("Loading train and test datasets")
+    logger.info("Loading train and test datasets")
     training_inds = pd.read_csv(args.train_set, index_col="id").index.tolist()
     evaluation_inds = pd.read_csv(args.eval_set, index_col="id").index.tolist()
 
@@ -194,7 +185,7 @@ def main():
     )
 
     # Load Reactome Network once
-    logging.info("Building Reactome Network.")
+    logger.info("Building Reactome Network.")
     reactome_network = ReactomeNetwork.ReactomeNetwork(
         train_dataset.get_genes(),
         use_embeddings=False,
@@ -202,7 +193,7 @@ def main():
 
     # Loop through each run and process the corresponding model
     for run_id in run_ids:
-        logging.info(f"Processing model for run: {run_id}")
+        logger.info(f"Processing model for run: {run_id}")
 
         run_config = fetch_run_config(run_id, args.wandb_project)
         model_hparams = fetch_model_parameters(run_config, train_dataset)
@@ -213,7 +204,7 @@ def main():
 
         # Evaluate and save predictions
         for dataset, dataset_name in [(train_dataset, "train"), (test_dataset, run_config["evaluation_set"])]:
-            logging.info(f"Saving predictions and probabilities for {dataset_name} set")
+            logger.info(f"Saving predictions and probabilities for {dataset_name} set")
             y_preds, y_probas = report_and_eval.get_model_preds_and_probs(
                 model=model, pnet_dataset=dataset, who=dataset_name, model_type=run_config["model_type"]
             )
@@ -226,7 +217,7 @@ def main():
                 indices=dataset.input_df.index.tolist(),
             )
 
-    logging.info("Finished processing all models in this group.")
+    logger.info("Finished processing all models in this group.")
     return
 
 
@@ -234,11 +225,11 @@ def main():
 #     args = parse_arguments()
 
 #     # Fetch run configuration from WandB
-#     logging.info(f"Fetching configuration for run {args.wandb_run_id} from project {args.wandb_project}")
+#     logger.info(f"Fetching configuration for run {args.wandb_run_id} from project {args.wandb_project}")
 #     run_config = fetch_run_config(args.wandb_run_id, args.wandb_project)
 
 #     # Extract relevant parameters
-#     logging.info("Extracting relevant parameters from W&B using the run id.")
+#     logger.info("Extracting relevant parameters from W&B using the run id.")
 #     SAVE_DIR = run_config.get("save_dir")
 #     MODEL_TYPE = run_config.get("model_type")
 #     DATASETS_TO_USE = run_config.get("dataset")
@@ -251,7 +242,7 @@ def main():
 #     Pnet.set_random_seeds(SEED, turn_off_cuDNN=False)
 
 #     # Taking steps to load the data based on the WANDB run config
-#     logging.info("Loading genetic data, additional data, and target labels.")
+#     logger.info("Loading genetic data, additional data, and target labels.")
 #     config_file = run_config.get("data_config_f")
 #     config = read_config(config_file)
 
@@ -266,12 +257,12 @@ def main():
 #     y = config["target"]["df"]
 
 #     genetic_data = {key: config["genetic_data"][key]["df"] for key in DATASETS_TO_USE if key in config["genetic_data"]}
-#     logging.info(f"Loaded datasets: {list(genetic_data.keys())}")
+#     logger.info(f"Loaded datasets: {list(genetic_data.keys())}")
 
 #     training_inds = pd.read_csv(TRAIN_SET_INDS_F, index_col="id").index.tolist()
 #     evaluation_inds = pd.read_csv(EVALUATION_SET_INDS_F, index_col="id").index.tolist()
 
-#     logging.info("Loading train and test datasets")
+#     logger.info("Loading train and test datasets")
 #     train_dataset, test_dataset = pnet_loader.generate_train_test(
 #         genetic_data=genetic_data,
 #         additional_data=additional,
@@ -283,7 +274,7 @@ def main():
 
 #     # Taking steps to load the model
 #     # Step 1: Load Reactome Network
-#     logging.info("Recreating reactome network from train dataset genes.")
+#     logger.info("Recreating reactome network from train dataset genes.")
 #     reactome_network = ReactomeNetwork.ReactomeNetwork(
 #         train_dataset.get_genes(),
 #         use_embeddings=False,  # Modify if embeddings were used
@@ -302,7 +293,7 @@ def main():
 #     model.eval()
 
 #     # Save predictions and probabilities
-#     logging.info(f"Saving predictions and probabilities for training set")
+#     logger.info(f"Saving predictions and probabilities for training set")
 #     y_preds, y_probas = report_and_eval.get_model_preds_and_probs(
 #         model=model, pnet_dataset=train_dataset, who="train", model_type=MODEL_TYPE
 #     )
@@ -315,7 +306,7 @@ def main():
 #         indices=train_dataset.input_df.index.tolist(),
 #     )
 
-#     logging.info(f"Saving predictions and probabilities for evaluation set ({EVALUATION_SET})")
+#     logger.info(f"Saving predictions and probabilities for evaluation set ({EVALUATION_SET})")
 #     y_preds, y_probas = report_and_eval.get_model_preds_and_probs(
 #         model=model, pnet_dataset=test_dataset, who=EVALUATION_SET, model_type=MODEL_TYPE
 #     )
@@ -329,7 +320,7 @@ def main():
 #         indices=test_dataset.input_df.index.tolist(),
 #     )
 
-#     logging.info("Process completed.")
+#     logger.info("Process completed.")
 #     return
 
 

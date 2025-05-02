@@ -17,6 +17,8 @@ import wandb
 from pnet import GenesetNetwork, ReactomeNetwork, pnet_loader, util
 from pnet.CustomizedLinear import masked_activation
 
+logger = logging.getLogger(__name__)
+
 
 class PNET_Block(nn.Module):
     def __init__(
@@ -493,7 +495,7 @@ class PNET_NN(pl.LightningModule):
 def get_torch_device():
     if torch.cuda.is_available():
         device = torch.device("cuda")
-        logging.debug("Setting device to cuda")
+        logger.debug("Setting device to cuda")
     elif torch.backends.mps.is_available():
         device = torch.device("mps")
     else:
@@ -957,7 +959,7 @@ def set_random_seeds(random_seed, turn_off_cuDNN=False):
     torch.cuda.manual_seed(random_seed)
     torch.cuda.manual_seed_all(random_seed)
     if turn_off_cuDNN:
-        logging.debug(
+        logger.debug(
             "We're making cuDNN deterministically select an algorithm for reproducibility purposes. This may reduce performance."
         )
         torch.backends.cudnn.benchmark = False

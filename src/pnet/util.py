@@ -1,3 +1,4 @@
+import logging
 import warnings
 
 import matplotlib.pyplot as plt
@@ -8,6 +9,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchmetrics
 from sklearn.metrics import auc, roc_auc_score, roc_curve
+
+logger = logging.getLogger(__name__)
 
 MUTATIONS_DICT = {
     "3'Flank": "Silent",
@@ -333,10 +336,8 @@ class EarlyStopper:
             self.counter = 0
         elif validation_loss > (self.min_validation_loss + self.min_validation_loss * self.min_delta):
             self.counter += 1
-            if self.verbose:
-                print("exceeded delta")
+            logger.debug("exceeded delta")
             if self.counter >= self.patience:
-                if self.verbose:
-                    print(f"exceeded our early-stopping patience of {self.patience}; stopping now")
+                logger.debug(f"exceeded our early-stopping patience of {self.patience}; stopping now")
                 return True
         return False
