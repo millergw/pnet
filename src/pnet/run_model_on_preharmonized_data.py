@@ -83,9 +83,9 @@ def parse_arguments():
     )
     parser.add(
         "--h1_alpha",
-        default=None,
-        type=none_or_float,
-        help="Strength of regularization on weights going to the first hidden layer (genes)",
+        default=0,
+        type=float,
+        help="Strength of regularization on weights going to the first hidden layer (genes); default to no regularization",
     )
     parser.add(
         "--h1_regularization_method",
@@ -100,222 +100,201 @@ def parse_arguments():
         type=float,
         help="Control the amount of L1 vs L2 regularization when using ElasticNet",
     )
+    parser.add(
+        "--epochs",
+        type=int,
+        default=500,
+        help="Number of epochs to train the model (default: 500)",
+    )
     return parser.parse_args()
 
 
 def read_config(filename):
-    with open(filename, "r") as f:
+    with open(filename) as f:
         config = yaml.safe_load(f)
     return config
 
 
-def main():
-    """# Load each of your data modalities of interest.
-    Format should be samples x genes. Set the sample IDs as the index.
-
-    Data modalities:
-    1. somatic amp
-    1. somatic del
-    1. somatic mut
-    1. germline mut (subset to a small number of genes).
-
-
-    NOTE: the PNET loader will automatically restrict the input data modalities to overlapping samples and overlapping genes.
-    This means we will need to be careful with our input germline dataset if we want to keep all the somatic data. The workaround is to prepare 'harmonized' data beforehand, e.g. with zero-imputed germline features.
-    """
-
-    logger.debug("Parsing command-line arguments")
-    args = parse_arguments()
-
-    WANDB_GROUP = args.wandb_group
-    wandb.login()
-    run = wandb.init(
-        # Set the project where this run will be logged
-        project=args.wandb_project,
-        group=WANDB_GROUP,
-    )
-
-    # allow for WandB to automatically re-queue if a run gets interrupted
-    run.mark_preempting()
-    wandb_run_id = wandb.run.id
-
-    # Access the values
-    DATASETS_TO_USE = args.datasets
-    EVALUATION_SET = args.evaluation_set
-    MODEL_TYPE = args.model_type
-    SEED = args.seed
-    SPLITS_DIR = args.data_split_dir
-    TRAIN_SET_INDS_F = os.path.join(SPLITS_DIR, "training_set.csv")
-    EVALUATION_SET_INDS_F = os.path.join(SPLITS_DIR, f"{EVALUATION_SET}_set.csv")
-
-    Pnet.set_random_seeds(SEED, turn_off_cuDNN=False)
-    torch.set_num_threads(args.cpus)
-
-    # Building save dir
-    SAVE_DIR = f"../../results/{MODEL_TYPE}_eval_set_{EVALUATION_SET}/wandbID_{wandb.run.id}"
-    if WANDB_GROUP != "":
-        SAVE_DIR = f"../../results/{WANDB_GROUP}/{MODEL_TYPE}_eval_set_{EVALUATION_SET}/wandbID_{wandb.run.id}"
-    report_and_eval.make_dir_if_needed(SAVE_DIR)
-
-    # TODO: need to figure out how to read in the dictionary style items (all my data)
-    config = read_config(args.data_config_f)
-
-    logger.debug(f"datasets: {args.datasets}, type: {type(args.datasets)}")
-
-    logger.info(f"Loading data from directory {args.input_data_dir}")
-    input_data_wandb_id = args.input_data_wandb_id
-
-    for name, info in config["genetic_data"].items():
-        config["genetic_data"][name]["df"] = pd.read_csv(
-            os.path.join(args.input_data_dir, info["filename"]), index_col=0
-        )  # NOTE: setting the first column as index
-
-    config["confounder_data"]["df"] = pd.read_csv(
-        os.path.join(args.input_data_dir, config["confounder_data"]["filename"]), index_col=0
-    )
-    config["target"]["df"] = pd.read_csv(os.path.join(args.input_data_dir, config["target"]["filename"]), index_col=0)
-
-    additional = config["confounder_data"]["df"]
-    y = config["target"]["df"]
-
-    # Pnet class expects to be passed a dict in format {name1:df1, name2:df2}
+def load_input_data(config, input_dir):
+    """Load genetic, confounder, and target data from disk."""
     genetic_data = {}
     for name, info in config["genetic_data"].items():
-        genetic_data[name] = info["df"]
-        logger.debug(info["df"].shape)
+        path = os.path.join(input_dir, info["filename"])
+        df = pd.read_csv(path, index_col=0)
+        genetic_data[name] = df
 
-    genetic_data = {key: genetic_data[key] for key in DATASETS_TO_USE if key in genetic_data}
-    logger.info(f"Dictionary keys of datasets we will use: {genetic_data.keys()}")
+    confounder_df = pd.read_csv(os.path.join(input_dir, config["confounder_data"]["filename"]), index_col=0)
+    target_df = pd.read_csv(os.path.join(input_dir, config["target"]["filename"]), index_col=0)
 
-    logger.info("Reporting summary information about all the input data.")
+    return genetic_data, confounder_df, target_df
+
+
+def get_train_eval_indices(split_dir, eval_set):
+    train_f = os.path.join(split_dir, "training_set.csv")
+    eval_f = os.path.join(split_dir, f"{eval_set}_set.csv")
+
+    train_ids = pd.read_csv(train_f, usecols=["id", "response"], index_col="id").index.tolist()
+    eval_ids = pd.read_csv(eval_f, usecols=["id", "response"], index_col="id").index.tolist()
+
+    return train_ids, eval_ids, train_f, eval_f
+
+
+def setup_save_dir(model_type, eval_set, wandb_group, run_id, base_dir="../../results"):
+    base = os.path.join(base_dir, f"{model_type}_eval_set_{eval_set}/wandbID_{run_id}")
+    if wandb_group:
+        base = os.path.join(base_dir, f"{wandb_group}/{model_type}_eval_set_{eval_set}/wandbID_{run_id}")
+    report_and_eval.make_dir_if_needed(base)
+    logger.debug(f"Save directory: {base}")
+    return base
+
+
+def train_model_rf(train_dataset, min_samples_split, random_seed=None):
+    logger.info("Training Random Forest model")
+    x_train, y_train = train_dataset.x, train_dataset.y.ravel()
+
+    model = model_selection.run_rf(x_train, y_train, random_seed=random_seed, min_samples_split=min_samples_split)
+    return model
+
+
+def train_model_bdt(train_dataset, test_dataset, evaluation_set):
+    logger.info("Training Gradient Boosting model")
+    x_train, y_train = train_dataset.x, train_dataset.y.ravel()
+    x_test, y_test = test_dataset.x, test_dataset.y.ravel()
+
+    model = model_selection.run_bdt(x_train, y_train, random_seed=None)
+
+    logger.info("Generating deviance plot to check convergence/overfitting")
+    train_scores, test_scores = report_and_eval.get_deviance(model, x_test, y_test)
+    plt = report_and_eval.get_loss_plot(
+        train_losses=train_scores,
+        test_losses=test_scores,
+        train_label="Train deviance",
+        test_label=f"{evaluation_set} deviance",
+        title="Model Deviance",
+        ylabel="Deviance (MSE)",
+        xlabel="Boosting iterations",
+    )
+    wandb.log({"convergence plot": plt})
+    report_and_eval.savefig(plt, os.path.join(wandb.run.dir, "deviance_per_boosting_iteration"))
+    return model, train_scores, test_scores
+
+
+def train_model_pnet(hparams, genetic_data, additional, y):
+    logger.info("Training PNET model")
+    model, train_losses, test_losses, train_dataset, test_dataset = Pnet.run(
+        genetic_data,
+        y,
+        save_path=os.path.join(hparams["save_dir"], "model.pt"),
+        additional_data=additional,
+        dropout=hparams["dropout"],
+        input_dropout=hparams["input_dropout"],
+        lr=hparams["lr"],
+        weight_decay=hparams["weight_decay"],
+        batch_size=hparams["batch_size"],
+        epochs=hparams["epochs"],
+        verbose=hparams["verbose"],
+        early_stopping=hparams["early_stopping"],
+        train_inds=hparams["train_set_indices"],
+        test_inds=hparams["evaluation_set_indices"],
+    )
+
+    logger.info("Logging loss curve")
+    plt = report_and_eval.get_loss_plot(train_losses=train_losses, test_losses=test_losses)
+    wandb.log({"convergence plot": plt})
+    report_and_eval.savefig(plt, os.path.join(hparams["save_dir"], "loss_over_time"))
+
+    return model, train_losses, test_losses, train_dataset, test_dataset
+
+
+def evaluate_and_log_results(model, train_dataset, test_dataset, model_type, save_dir, eval_set_name):
+    logger.info("Evaluating model on training and evaluation sets")
+    report_and_eval.evaluate_interpret_save(
+        model=model, pnet_dataset=train_dataset, model_type=model_type, who="train", save_dir=save_dir
+    )
+    report_and_eval.evaluate_interpret_save(
+        model=model, pnet_dataset=test_dataset, model_type=model_type, who=eval_set_name, save_dir=save_dir
+    )
+
+
+def main():
+    args = parse_arguments()
+    wandb.login()
+    run = wandb.init(project=args.wandb_project, group=args.wandb_group)
+    wandb_run_id = wandb.run.id
+
+    # Set environment
+    Pnet.set_random_seeds(args.seed, turn_off_cuDNN=False)
+    torch.set_num_threads(args.cpus)
+
+    # Load config and data
+    config = read_config(args.data_config_f)
+    genetic_data, confounder_df, y = load_input_data(config, args.input_data_dir)
+    genetic_data = {k: v for k, v in genetic_data.items() if k in args.datasets}
+
+    # Load splits
+    train_inds, eval_inds, train_f, eval_f = get_train_eval_indices(args.data_split_dir, args.evaluation_set)
+
+    # Setup save path
+    save_dir = setup_save_dir(args.model_type, args.evaluation_set, args.wandb_group, wandb_run_id)
+
+    # Log info
+    logger.info(f"Training on datasets: {list(genetic_data.keys())}")
     report_and_eval.report_df_info_with_names(genetic_data, n=5)
-    report_and_eval.report_df_info_with_names({"additional": additional, "y": y}, n=5)
+    report_and_eval.report_df_info_with_names({"confounders": confounder_df, "y": y}, n=5)
 
-    training_inds = pd.read_csv(TRAIN_SET_INDS_F, usecols=["id", "response"], index_col="id").index.tolist()
-    evaluation_inds = pd.read_csv(EVALUATION_SET_INDS_F, usecols=["id", "response"], index_col="id").index.tolist()
-
-    logger.info("Defining the hyperparameters of the modeling run")
+    # Build hparams
     hparams = {
-        "wandb_run_id_that_created_inputs": input_data_wandb_id,
+        "wandb_run_id_that_created_inputs": args.input_data_wandb_id,
         "nbr_gene_inputs": len(genetic_data),
-        "h1_alpha": args.h1_alpha,
-        "h1_regularization_method": args.h1_regularization_method,
-        "l1_ratio": args.l1_ratio,
         "dropout": 0.2,
         "input_dropout": args.input_dropout,
-        "additional_dims": additional.shape[1],
+        "additional_dims": confounder_df.shape[1],
         "output_dim": 1,
         "lr": 1e-3,
         "weight_decay": 1e-3,
-        "epochs": 500,  # 500, 3 if testing something
+        "epochs": args.epochs,
         "early_stopping": True,
         "batch_size": 64,
         "verbose": True,
-        "train_set_indices_f": TRAIN_SET_INDS_F,
-        "evaluation_set_indices_f": EVALUATION_SET_INDS_F,
-        "train_set_indices": training_inds,
-        "evaluation_set_indices": evaluation_inds,
-        "dataset": list(genetic_data.keys()),
-        "random_seed": SEED,
-        "model_type": MODEL_TYPE,
-        "evaluation_set": EVALUATION_SET,
-        "save_dir": SAVE_DIR,
+        "train_set_indices_f": train_f,
+        "evaluation_set_indices_f": eval_f,
+        "train_set_indices": train_inds,
+        "evaluation_set_indices": eval_inds,
+        "datasets": list(genetic_data.keys()),
+        "random_seed": args.seed,
+        "model_type": args.model_type,
+        "evaluation_set": args.evaluation_set,
+        "save_dir": save_dir,
     }
 
-    logger.info("Adding hyperparameters and run metadata to Weights and Biases")
     wandb.config.update(hparams)
-    if MODEL_TYPE in ["rf", "bdt"]:
-        logger.info("Loading data and making data splits")
+
+    # Training & evaluation
+    if args.model_type in ["rf", "bdt"]:
         train_dataset, test_dataset = pnet_loader.generate_train_test(
             genetic_data,
-            additional_data=additional,
+            additional_data=confounder_df,
             target=y,
-            train_inds=training_inds,
-            test_inds=evaluation_inds,
+            train_inds=train_inds,
+            test_inds=eval_inds,
             gene_set=None,
-        )
-        logger.info(
-            "Merging the genetic data and additional data (e.g. confounders). Updating the input_df and x attributes."
         )
         train_dataset.input_df = pd.concat([train_dataset.input_df, train_dataset.additional_data], axis=1)
         train_dataset.x = torch.cat([train_dataset.x, train_dataset.additional], dim=1)
         test_dataset.input_df = pd.concat([test_dataset.input_df, test_dataset.additional_data], axis=1)
         test_dataset.x = torch.cat([test_dataset.x, test_dataset.additional], dim=1)
 
-        x_train = train_dataset.x
-        y_train = train_dataset.y.ravel()
-        x_test = test_dataset.x
-        y_test = test_dataset.y.ravel()
+        if args.model_type == "rf":
+            model = train_model_rf(train_dataset, args.min_samples_split)
+        else:
+            model, _, _ = train_model_bdt(train_dataset, test_dataset, args.evaluation_set)
 
-    if MODEL_TYPE == "rf":
-        model = model_selection.run_rf(x_train, y_train, random_seed=None, min_samples_split=args.min_samples_split)
+    elif args.model_type == "pnet":
+        model, _, _, train_dataset, test_dataset = train_model_pnet(hparams, genetic_data, confounder_df, y)
 
-    elif MODEL_TYPE == "bdt":
-        model = model_selection.run_bdt(x_train, y_train, random_seed=None)
-        logger.info("Making deviance plots to check convergence/overfitting for model")
-        train_scores, test_scores = report_and_eval.get_deviance(model, x_test, y_test)
-        plt = report_and_eval.get_loss_plot(
-            train_losses=train_scores,
-            test_losses=test_scores,
-            train_label="Train deviance",
-            test_label=f"{EVALUATION_SET} deviance",
-            title="Model Deviance",
-            ylabel="Deviance (MSE)",
-            xlabel="Boosting iterations",
-        )
-        report_and_eval.savefig(plt, os.path.join(SAVE_DIR, "deviance_per_boosting_iteration"))
-        wandb.log({"convergence plot": plt})
-        plt.show()
+    evaluate_and_log_results(model, train_dataset, test_dataset, args.model_type, save_dir, args.evaluation_set)
 
-    if MODEL_TYPE == "pnet":
-        logger.info("Train with Pnet.run()")
-        model, train_losses, test_losses, train_dataset, test_dataset = Pnet.run(
-            genetic_data,
-            y,
-            save_path=os.path.join(
-                SAVE_DIR, "model.pt"
-            ),  # TODO: this has suddenly stopped working. I think the only big change was getting a different version of CUDA to match my version of PyTorch..
-            gene_set=None,
-            additional_data=additional,  # TODO: need some way of tracking which additional features are used. Maybe can extract and save with W&B?
-            dropout=hparams["dropout"],
-            input_dropout=args.input_dropout,
-            lr=hparams["lr"],
-            weight_decay=hparams["weight_decay"],
-            batch_size=hparams["batch_size"],
-            epochs=hparams["epochs"],
-            verbose=hparams["verbose"],
-            early_stopping=hparams["early_stopping"],
-            train_inds=hparams["train_set_indices"],
-            test_inds=hparams["evaluation_set_indices"],
-            random_network=False,
-            fcnn=False,
-            task=None,
-            loss_fn=None,
-            loss_weight=None,
-            aux_loss_weights=[2, 7, 20, 54, 148, 400],
-            h1_alpha=hparams["h1_alpha"],
-            h1_regularization_method=hparams["h1_regularization_method"],
-            l1_ratio=hparams["l1_ratio"],
-        )
-
-        logger.info("Check model convergence by examining the plot of how loss changes over time")
-        plt = report_and_eval.get_loss_plot(train_losses=train_losses, test_losses=test_losses)
-        report_and_eval.savefig(plt, os.path.join(SAVE_DIR, "loss_over_time"))
-        # instead of doing plt.show() do: # see https://docs.wandb.ai/guides/integrations/scikit
-        wandb.log({"convergence plot": plt})
-        plt.show()
-
-    logger.info(
-        f"Get the model predictions (preds and probas), performance metrics, feature importances, and save the results to {SAVE_DIR}."
-    )
-    report_and_eval.evaluate_interpret_save(
-        model=model, pnet_dataset=train_dataset, model_type=MODEL_TYPE, who="train", save_dir=SAVE_DIR
-    )
-    report_and_eval.evaluate_interpret_save(
-        model=model, pnet_dataset=test_dataset, model_type=MODEL_TYPE, who=EVALUATION_SET, save_dir=SAVE_DIR
-    )
-
-    logger.info("ending wandb run")
+    logger.info("Run complete. Finishing wandb.")
     wandb.finish()
     return wandb_run_id
 
