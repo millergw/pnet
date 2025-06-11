@@ -4,6 +4,7 @@
 
 import logging
 import os
+import re
 
 import configargparse
 import pandas as pd
@@ -14,11 +15,11 @@ import wandb
 from pnet import Pnet, model_selection, pnet_loader, report_and_eval
 
 logging.basicConfig(
-    filename="run_pnet.log",
     encoding="utf-8",
     format="%(asctime)s %(levelname)-8s [%(name)s] %(message)s",
     level=logging.INFO,
     datefmt="%Y-%m-%d %H:%M:%S",
+    force=True,
 )
 
 logger = logging.getLogger(__name__)
@@ -31,10 +32,23 @@ class ParseAction(configargparse.Action):
         setattr(namespace, self.dest, values)
 
 
+def none_or_float(value):
+    if value == "None" or value is None:
+        return None
+    return float(value)
+
+
 def parse_arguments():
     parser = configargparse.ArgumentParser(description="Description of your script")
     parser.add("--config_f", type=str, required=False, is_config_file=True, help="Path to a config file")
     parser.add("--data_config_f", type=str, required=True, is_config_file=False, help="Path to a config file")
+    parser.add(
+        "--perturbed_data_config_f",
+        type=str,
+        required=False,
+        is_config_file=False,
+        help="Path to a config file for the perturbed data",
+    )
     parser.add(
         "--datasets",
         default=["somatic_amp", "somatic_del", "somatic_mut"],
@@ -54,7 +68,7 @@ def parse_arguments():
     parser.add("--input_data_dir", help="Directory with model-ready data")
     parser.add(
         "--data_split_dir",
-        default="../../pnet_germline/data/pnet_database/prostate/splits",
+        default="../../../pnet_germline/data/pnet_database/prostate/splits",
         help="Directory with data split files",
     )
     parser.add(
@@ -69,19 +83,51 @@ def parse_arguments():
     parser.add(
         "--min_samples_split",
         type=int,
-        default=2,
+        default=50,
         help="Define the min number of samples used to make RF split (best practice usually 5-10% of dataset)",
     )
     parser.add(
         "--input_dropout", default=0.5, type=float, help="Proportion of dropout between the input layer and gene layer"
     )
-    parser.add("--perturbed_target", default=None, type=str, required=False, help="Path to the perturbed target file")
     parser.add(
-        "--perturbed_somatic_mut", default=None, type=str, required=False, help="Path to the perturbed somatic_mut file"
+        "--h1_alpha",
+        default=0,
+        type=float,
+        help="Strength of regularization on weights going to the first hidden layer (genes); default to no regularization",
     )
     parser.add(
-        "--perturbed_data_dir", default=None, type=str, required=False, help="Directory containing perturbed data files"
+        "--h1_regularization_method",
+        default="l1",
+        choices=["l1", "l2", "elasticnet"],
+        help="Type of regularization on weights going to the first hidden layer (genes)",
     )
+    parser.add(
+        "--l1_ratio",
+        required=False,
+        default=0.5,
+        type=float,
+        help="Control the amount of L1 vs L2 regularization when using ElasticNet",
+    )
+    parser.add(
+        "--epochs",
+        type=int,
+        default=500,
+        help="Number of epochs to train the model (default: 500)",
+    )
+    parser.add("--perturbed_data_dir", type=str, default=None, help="Path to perturbed data directory")
+    parser.add(
+        "--perturbed_data_wandb_id",
+        type=str,
+        default=None,
+        help="W&B run ID that created the perturbed/simulated data in the perturbed_data_dir, if applicable",
+    )
+    parser.add(
+        "--perturbation_suffix",
+        type=str,
+        default=None,
+        help="Suffix for perturbation setting as defined in the perturbation config file. This suffix is the identifier for the perturbation that was applied to the data.",
+    )
+
     return parser.parse_args()
 
 
@@ -91,231 +137,257 @@ def read_config(filename):
     return config
 
 
-def main():
-    """# Load each of your data modalities of interest.
-    Format should be samples x genes. Set the sample IDs as the index.
-
-    Data modalities:
-    1. somatic amp
-    1. somatic del
-    1. somatic mut
-    1. germline mut (subset to a small number of genes).
-
-
-    NOTE: the PNET loader will automatically restrict the input data modalities to overlapping samples and overlapping genes.
-    This means we will need to be careful with our input germline dataset if we want to keep all the somatic data. The workaround is to prepare 'harmonized' data beforehand, e.g. with zero-imputed germline features.
-    """
-
-    logger.debug("Parsing command-line arguments")
-    args = parse_arguments()
-
-    WANDB_GROUP = args.wandb_group
-    wandb.login()
-    run = wandb.init(
-        # Set the project where this run will be logged
-        project=args.wandb_project,
-        group=WANDB_GROUP,
-    )
-
-    # allow for WandB to automatically re-queue if a run gets interrupted
-    run.mark_preempting()
-    wandb_run_id = wandb.run.id
-
-    # Access the values
-    DATASETS_TO_USE = args.datasets
-    EVALUATION_SET = args.evaluation_set
-    MODEL_TYPE = args.model_type
-    SEED = args.seed
-    MODEL_TYPE = args.model_type
-    EVALUATION_SET = args.evaluation_set
-    SPLITS_DIR = args.data_split_dir
-    TRAIN_SET_INDS_F = os.path.join(SPLITS_DIR, "training_set.csv")
-    EVALUATION_SET_INDS_F = os.path.join(SPLITS_DIR, f"{EVALUATION_SET}_set.csv")
-
-    Pnet.set_random_seeds(SEED, turn_off_cuDNN=False)
-    torch.set_num_threads(args.cpus)
-
-    SAVE_DIR = f"../results/{MODEL_TYPE}_eval_set_{EVALUATION_SET}/wandbID_{wandb.run.id}"
-    if WANDB_GROUP != "":
-        SAVE_DIR = f"../results/{WANDB_GROUP}/{MODEL_TYPE}_eval_set_{EVALUATION_SET}/wandbID_{wandb.run.id}"
-    report_and_eval.make_dir_if_needed(SAVE_DIR)
-
-    # TODO: need to figure out how to read in the dictionary style items (all my data)
-    config = read_config(args.data_config_f)
-
-    logger.debug("datasets: ", args.datasets, type(args.datasets))
-
-    logger.info(f"Loading data from directory {args.input_data_dir}")
-    input_data_wandb_id = args.input_data_wandb_id
-
-    for name, info in config["genetic_data"].items():
-        config["genetic_data"][name]["df"] = pd.read_csv(
-            os.path.join(args.input_data_dir, info["filename"]), index_col=0
-        )  # NOTE: setting the first column as index
-
-    config["confounder_data"]["df"] = pd.read_csv(
-        os.path.join(args.input_data_dir, config["confounder_data"]["filename"]), index_col=0
-    )
-
-    # TODO: add override option here for perturbed data. This will be useful for testing the model's robustness.
-    logger.info(f"Using perturbed target: {args.perturbed_target}" if args.perturbed_target else "Using default target")
-    logger.info(
-        f"Using perturbed somatic_mut: {args.perturbed_somatic_mut}"
-        if args.perturbed_somatic_mut
-        else "Using default somatic_mut"
-    )
-    if args.perturbed_somatic_mut:
-        config["genetic_data"]["somatic_mut"]["df"] = pd.read_csv(
-            os.path.join(args.perturbed_data_dir, args.perturbed_somatic_mut), index_col=0
-        )
-    if args.perturbed_target:
-        config["target"]["df"] = pd.read_csv(os.path.join(args.perturbed_data_dir, args.perturbed_target), index_col=0)
-    else:
-        config["target"]["df"] = pd.read_csv(
-            os.path.join(args.input_data_dir, config["target"]["filename"]), index_col=0
-        )
-
-    additional = config["confounder_data"]["df"]
-    y = config["target"]["df"]
-
-    # Pnet class expects to be passed a dict in format {name1:df1, name2:df2}
+def load_input_data(config, input_dir, perturbed_data_dir=None, perturbed_target=None, perturbed_somatic_mut=None):
+    """Load genetic, confounder, and target data from disk, with optional overrides for perturbation testing."""
     genetic_data = {}
     for name, info in config["genetic_data"].items():
-        genetic_data[name] = info["df"]
-        logger.debug(info["df"].shape)
+        if name == "somatic_mut" and perturbed_somatic_mut:
+            path = os.path.join(perturbed_data_dir, perturbed_somatic_mut)
+            logger.info(f"Using perturbed somatic_mut: {path}")
+        else:
+            path = os.path.join(input_dir, info["filename"])
+            logger.debug(f"Using default {name}: {path}")
+        genetic_data[name] = pd.read_csv(path, index_col=0)
 
-    genetic_data = {key: genetic_data[key] for key in DATASETS_TO_USE if key in genetic_data}
-    logger.info(f"Dictionary keys of datasets we will use: {genetic_data.keys()}")
+    confounder_df = pd.read_csv(os.path.join(input_dir, config["confounder_data"]["filename"]), index_col=0)
 
-    logger.info("Reporting summary information about all the input data.")
+    if perturbed_target:
+        target_path = os.path.join(perturbed_data_dir, perturbed_target)
+        logger.info(f"Using perturbed target: {target_path}")
+    else:
+        target_path = os.path.join(input_dir, config["target"]["filename"])
+        logger.debug(f"Using default target: {target_path}")
+
+    target_df = pd.read_csv(target_path, index_col=0)
+
+    return genetic_data, confounder_df, target_df
+
+
+def get_train_eval_indices(split_dir, eval_set):
+    train_f = os.path.join(split_dir, "training_set.csv")
+    eval_f = os.path.join(split_dir, f"{eval_set}_set.csv")
+
+    train_ids = pd.read_csv(train_f, usecols=["id", "response"], index_col="id").index.tolist()
+    eval_ids = pd.read_csv(eval_f, usecols=["id", "response"], index_col="id").index.tolist()
+
+    return train_ids, eval_ids, train_f, eval_f
+
+
+def setup_save_dir(model_type, eval_set, wandb_group, run_id, base_dir="../../results"):
+    base = os.path.join(base_dir, f"{model_type}_eval_set_{eval_set}/wandbID_{run_id}")
+    if wandb_group:
+        base = os.path.join(base_dir, f"{wandb_group}/{model_type}_eval_set_{eval_set}/wandbID_{run_id}")
+    report_and_eval.make_dir_if_needed(base)
+    logger.debug(f"Save directory: {base}")
+    return base
+
+
+def train_model_rf(train_dataset, min_samples_split, random_seed=None):
+    logger.info("Training Random Forest model")
+    x_train, y_train = train_dataset.x, train_dataset.y.ravel()
+
+    model = model_selection.run_rf(x_train, y_train, random_seed=random_seed, min_samples_split=min_samples_split)
+    return model
+
+
+def train_model_bdt(train_dataset, test_dataset, evaluation_set):
+    logger.info("Training Gradient Boosting model")
+    x_train, y_train = train_dataset.x, train_dataset.y.ravel()
+    x_test, y_test = test_dataset.x, test_dataset.y.ravel()
+
+    model = model_selection.run_bdt(x_train, y_train, random_seed=None)
+
+    logger.info("Generating deviance plot to check convergence/overfitting")
+    train_scores, test_scores = report_and_eval.get_deviance(model, x_test, y_test)
+    plt = report_and_eval.get_loss_plot(
+        train_losses=train_scores,
+        test_losses=test_scores,
+        train_label="Train deviance",
+        test_label=f"{evaluation_set} deviance",
+        title="Model Deviance",
+        ylabel="Deviance (MSE)",
+        xlabel="Boosting iterations",
+    )
+    wandb.log({"convergence plot": plt})
+    report_and_eval.savefig(plt, os.path.join(wandb.run.dir, "deviance_per_boosting_iteration"))
+    return model, train_scores, test_scores
+
+
+def train_model_pnet(hparams, genetic_data, additional, y, delete_model_after_training=False):
+    logger.info("Training PNET model")
+    model_save_path = os.path.join(hparams["save_dir"], "model.pt")
+
+    model, train_losses, test_losses, train_dataset, test_dataset = Pnet.run(
+        genetic_data,
+        y,
+        save_path=model_save_path,
+        additional_data=additional,
+        dropout=hparams["dropout"],
+        input_dropout=hparams["input_dropout"],
+        lr=hparams["lr"],
+        weight_decay=hparams["weight_decay"],
+        batch_size=hparams["batch_size"],
+        epochs=hparams["epochs"],
+        verbose=hparams["verbose"],
+        early_stopping=hparams["early_stopping"],
+        train_inds=hparams["train_set_indices"],
+        test_inds=hparams["evaluation_set_indices"],
+    )
+
+    logger.info("Logging loss curve")
+    plt = report_and_eval.get_loss_plot(train_losses=train_losses, test_losses=test_losses)
+    wandb.log({"convergence plot": plt})
+    report_and_eval.savefig(plt, os.path.join(hparams["save_dir"], "loss_over_time"))
+
+    if delete_model_after_training:
+        try:
+            os.remove(model_save_path)
+            logger.info(f"Deleted model file at: {model_save_path}")
+        except OSError as e:
+            logger.warning(f"Failed to delete model file: {e}")
+
+    return model, train_losses, test_losses, train_dataset, test_dataset
+
+
+def evaluate_and_log_results(model, train_dataset, test_dataset, model_type, save_dir, eval_set_name):
+    logger.info("Evaluating model on training and evaluation sets")
+    report_and_eval.evaluate_interpret_save(
+        model=model, pnet_dataset=train_dataset, model_type=model_type, who="train", save_dir=save_dir
+    )
+    report_and_eval.evaluate_interpret_save(
+        model=model, pnet_dataset=test_dataset, model_type=model_type, who=eval_set_name, save_dir=save_dir
+    )
+
+
+def main():
+    wandb.login()
+    args = parse_arguments()
+    wandb.init(group=args.wandb_group)
+
+    # Set environment
+    Pnet.set_random_seeds(args.seed, turn_off_cuDNN=False)
+    torch.set_num_threads(args.cpus)
+
+    logger.debug("Load configs")
+    config = read_config(
+        args.data_config_f
+    )  # TODO: this is the way I know how to handle dictinary-style parameters in a config file. Update perturbation_setting based on this?
+
+    if args.perturbed_data_config_f:
+        perturbed_data_config = read_config(args.perturbed_data_config_f)
+        logger.debug(f"Loaded perturbed data config: {perturbed_data_config}")
+        args.perturbed_somatic_mut = perturbed_data_config["perturbed_somatic_mut"][args.perturbation_suffix][
+            "data_file"
+        ]
+        args.perturbed_target = perturbed_data_config["perturbed_somatic_mut"][args.perturbation_suffix]["target_file"]
+    else:
+        logger.warning("No perturbed data config file provided. Falling back to normal data.")
+
+    genetic_data, confounder_df, y = load_input_data(
+        config,
+        args.input_data_dir,
+        perturbed_data_dir=args.perturbed_data_dir,
+        perturbed_target=args.perturbed_target,
+        perturbed_somatic_mut=args.perturbed_somatic_mut,
+    )
+    genetic_data = {
+        k: v for k, v in genetic_data.items() if k in args.datasets
+    }  # TODO: this could break if you don't realize you aren't including the perturbed dataset
+
+    # Load splits
+    train_inds, eval_inds, train_f, eval_f = get_train_eval_indices(args.data_split_dir, args.evaluation_set)
+
+    # Setup save path
+    save_dir = setup_save_dir(args.model_type, args.evaluation_set, args.wandb_group, wandb.run.id)
+
+    # Log info
+    logger.info(f"Training on datasets: {list(genetic_data.keys())}")
     report_and_eval.report_df_info_with_names(genetic_data, n=5)
-    report_and_eval.report_df_info_with_names({"additional": additional, "y": y}, n=5)
+    report_and_eval.report_df_info_with_names({"confounders": confounder_df, "y": y}, n=5)
 
-    training_inds = pd.read_csv(TRAIN_SET_INDS_F, usecols=["id", "response"], index_col="id").index.tolist()
-    evaluation_inds = pd.read_csv(EVALUATION_SET_INDS_F, usecols=["id", "response"], index_col="id").index.tolist()
-
-    logger.info("Defining the hyperparameters of the modeling run")
+    # Build hparams
     hparams = {
-        "wandb_run_id_that_created_inputs": input_data_wandb_id,
+        "wandb.run.id_that_created_inputs": args.input_data_wandb_id,
         "nbr_gene_inputs": len(genetic_data),
         "dropout": 0.2,
         "input_dropout": args.input_dropout,
-        "additional_dims": 0,
+        "additional_dims": confounder_df.shape[1],
         "output_dim": 1,
         "lr": 1e-3,
         "weight_decay": 1e-3,
-        "epochs": 500,  # 500, 3 if testing something
+        "epochs": args.epochs,
         "early_stopping": True,
         "batch_size": 64,
         "verbose": True,
-        "train_set_indices_f": TRAIN_SET_INDS_F,
-        "evaluation_set_indices_f": EVALUATION_SET_INDS_F,
-        "train_set_indices": training_inds,
-        "evaluation_set_indices": evaluation_inds,
-        "dataset": list(genetic_data.keys()),
-        "random_seed": SEED,
-        "model_type": MODEL_TYPE,
-        "evaluation_set": EVALUATION_SET,
-        "save_dir": SAVE_DIR,
-        "perturbed_target": args.perturbed_target,
-        "perturbed_somatic_mut": args.perturbed_somatic_mut,
-        "perturbed_data_dir": args.perturbed_data_dir,
+        "train_set_indices_f": train_f,
+        "evaluation_set_indices_f": eval_f,
+        "train_set_indices": train_inds,
+        "evaluation_set_indices": eval_inds,
+        "datasets": list(genetic_data.keys()),
+        "random_seed": args.seed,
+        "model_type": args.model_type,
+        "evaluation_set": args.evaluation_set,
+        "save_dir": save_dir,
     }
 
-    logger.info("Adding hyperparameters and run metadata to Weights and Biases")
+    if args.perturbed_data_dir:
+        hparams["n_features"] = genetic_data["somatic_mut"].shape[1]
+        hparams["perturbed_data_dir"] = args.perturbed_data_dir
+        hparams["perturbed_target"] = args.perturbed_target
+        hparams["perturbed_somatic_mut"] = args.perturbed_somatic_mut
+        hparams["perturbation_suffix"] = args.perturbation_suffix
+        hparams["wandb.run.id_that_created_perturbed_inputs"] = args.perturbed_data_wandb_id
+
+        match = re.search(
+            r"gene-(?P<gene>[A-Za-z0-9]+)_OR-(?P<odds_ratio>[0-9p]+)_ctrlFreq-(?P<control_freq>[0-9p]+)",
+            args.perturbation_suffix,
+        )
+        if match:
+            perturbed_gene = match.group("gene")
+            odds_ratio = float(match.group("odds_ratio").replace("p", "."))
+            control_frequency = float(match.group("control_freq").replace("p", "."))
+            hparams["perturbed_gene"] = perturbed_gene
+            hparams["odds_ratio"] = odds_ratio
+            hparams["control_frequency"] = control_frequency
+            logger.debug(
+                f"Parsed perturbation_suffix: gene={perturbed_gene}, odds_ratio={odds_ratio}, control_frequency={control_frequency}"
+            )
+        else:
+            logger.warning(f"Could not parse perturbation_suffix: {args.perturbation_suffix}")
+
+    # Adding hparams to wandb config
     wandb.config.update(hparams)
-    if MODEL_TYPE in ["rf", "bdt"]:
-        logger.info("Loading data and making data splits")
+
+    # Training & evaluation
+    if args.model_type in ["rf", "bdt"]:
         train_dataset, test_dataset = pnet_loader.generate_train_test(
             genetic_data,
-            additional_data=additional,
+            additional_data=confounder_df,
             target=y,
-            train_inds=training_inds,
-            test_inds=evaluation_inds,
+            train_inds=train_inds,
+            test_inds=eval_inds,
             gene_set=None,
-        )
-        logger.info(
-            "Merging the genetic data and additional data (e.g. confounders). Updating the input_df and x attributes."
         )
         train_dataset.input_df = pd.concat([train_dataset.input_df, train_dataset.additional_data], axis=1)
         train_dataset.x = torch.cat([train_dataset.x, train_dataset.additional], dim=1)
         test_dataset.input_df = pd.concat([test_dataset.input_df, test_dataset.additional_data], axis=1)
         test_dataset.x = torch.cat([test_dataset.x, test_dataset.additional], dim=1)
 
-        x_train = train_dataset.x
-        y_train = train_dataset.y.ravel()
-        x_test = test_dataset.x
-        y_test = test_dataset.y.ravel()
+        if args.model_type == "rf":
+            model = train_model_rf(train_dataset, args.min_samples_split)
+        else:
+            model, _, _ = train_model_bdt(train_dataset, test_dataset, args.evaluation_set)
 
-    if MODEL_TYPE == "rf":
-        model = model_selection.run_rf(x_train, y_train, random_seed=None, min_samples_split=args.min_samples_split)
-
-    elif MODEL_TYPE == "bdt":
-        model = model_selection.run_bdt(x_train, y_train, random_seed=None)
-        # TODO: start here 2/15. Unsure if test_dataset.input or test_dataset.x is appropriate for the get_deviance function.
-        logger.info("Making deviance plots to check convergence/overfitting for model")
-        train_scores, test_scores = report_and_eval.get_deviance(model, x_test, y_test)
-        plt = report_and_eval.get_loss_plot(
-            train_losses=train_scores,
-            test_losses=test_scores,
-            train_label="Train deviance",
-            test_label=f"{EVALUATION_SET} deviance",
-            title="Model Deviance",
-            ylabel="Deviance (MSE)",
-            xlabel="Boosting iterations",
-        )
-        report_and_eval.savefig(plt, os.path.join(SAVE_DIR, "deviance_per_boosting_iteration"))
-        wandb.log({"convergence plot": plt})
-        plt.show()
-
-    if MODEL_TYPE == "pnet":
-        logger.info("Train with Pnet.run()")
-        model, train_losses, test_losses, train_dataset, test_dataset = Pnet.run(
-            genetic_data,
-            y,
-            save_path=os.path.join(
-                SAVE_DIR, "model.pt"
-            ),  # TODO: this has suddenly stopped working. I think the only big change was getting a different version of CUDA to match my version of PyTorch..
-            gene_set=None,
-            additional_data=additional,  # TODO: need some way of tracking which additional features are used. Maybe can extract and save with W&B?
-            dropout=hparams["dropout"],
-            input_dropout=args.input_dropout,
-            lr=hparams["lr"],
-            weight_decay=hparams["weight_decay"],
-            batch_size=hparams["batch_size"],
-            epochs=hparams["epochs"],
-            verbose=hparams["verbose"],
-            early_stopping=hparams["early_stopping"],
-            train_inds=hparams["train_set_indices"],
-            test_inds=hparams["evaluation_set_indices"],
-            random_network=False,
-            fcnn=False,
-            task=None,
-            loss_fn=None,
-            loss_weight=None,
-            aux_loss_weights=[2, 7, 20, 54, 148, 400],
+    elif args.model_type == "pnet":
+        model, _, _, train_dataset, test_dataset = train_model_pnet(
+            hparams, genetic_data, confounder_df, y, delete_model_after_training=True
         )
 
-        logger.info("Check model convergence by examining the plot of how loss changes over time")
-        plt = report_and_eval.get_loss_plot(train_losses=train_losses, test_losses=test_losses)
-        report_and_eval.savefig(plt, os.path.join(SAVE_DIR, "loss_over_time"))
-        # instead of doing plt.show() do: # see https://docs.wandb.ai/guides/integrations/scikit
-        wandb.log({"convergence plot": plt})
-        plt.show()
+    evaluate_and_log_results(model, train_dataset, test_dataset, args.model_type, save_dir, args.evaluation_set)
 
-    logger.info(
-        f"Get the model predictions (preds and probas), performance metrics, feature importances, and save the results to {SAVE_DIR}."
-    )
-    report_and_eval.evaluate_interpret_save(
-        model=model, pnet_dataset=train_dataset, model_type=MODEL_TYPE, who="train", save_dir=SAVE_DIR
-    )
-    report_and_eval.evaluate_interpret_save(
-        model=model, pnet_dataset=test_dataset, model_type=MODEL_TYPE, who=EVALUATION_SET, save_dir=SAVE_DIR
-    )
-
-    logger.info("ending wandb run")
+    logger.info("Run complete. Finishing wandb.")
     wandb.finish()
-    return wandb_run_id
+    return
 
 
 if __name__ == "__main__":
