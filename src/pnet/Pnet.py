@@ -85,7 +85,7 @@ class PNET_NN(pl.LightningModule):
         gene_dropout=0.1,
         input_dropout=0.5,
         activation="tanh",
-        h1_alpha=None,
+        h1_alpha=0,
         h1_regularization_method=None,
         l1_ratio=None,
         loss_fn=None,
@@ -120,7 +120,7 @@ class PNET_NN(pl.LightningModule):
         self.regulatory_flag = add_regulatory_layer
 
         # set the h1 regularization loss function. We use the lambda function for deferred execution (e.g. computer with the current parameters during each training step)
-        if self.h1_alpha is not None:
+        if abs(self.h1_alpha) > 1e-8:
             if self.h1_regularization_method == "l1":
                 self.h1_regularization_loss = lambda: l1_regularization_fn(self.input_layer.parameters(), self.h1_alpha)
             elif self.h1_regularization_method == "l2":
@@ -658,7 +658,7 @@ def run(
     weight_decay=1e-3,
     batch_size=64,
     epochs=400,
-    h1_alpha=None,
+    h1_alpha=0,
     h1_regularization_method=None,
     l1_ratio=None,  # related to regularizing the first hidden layer
     verbose=False,

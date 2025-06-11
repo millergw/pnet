@@ -368,6 +368,7 @@ def get_pnet_feature_importances(model, who, pnet_dataset, save_dir=None):
     - who: train, test, validation, or val. Which dataset are you using?
     - pnet_dataset: this is a Pnet dataset object (not a DF), and has attributes x, additional, y, etc.
     """
+    logger.info(f"Getting feature importances for {who} set")
     gene_feature_importances, additional_feature_importances, gene_importances, layer_importance_scores = (
         model.interpret(pnet_dataset)
     )
@@ -447,17 +448,23 @@ def evaluate_interpret_save(model, who, model_type, pnet_dataset=None, x=None, y
         save_predictions_and_probs(
             save_dir, who, y, y_preds, y_probas, indices=pnet_dataset.input_df.index.tolist()
         )  # TODO: this is universal, and should get pulled out
+
         metric_dict = get_performance_metrics(
             who, y, y_preds, y_probas, save_dir
         )  # TODO: this is universal, and should get pulled out
 
-        gene_feature_importances, additional_feature_importances, gene_importances, layer_importance_scores = (
-            get_pnet_feature_importances(model, who, pnet_dataset, save_dir)
-        )
-
         if who != "train":
+            gene_feature_importances, additional_feature_importances, gene_importances, layer_importance_scores = (
+                get_pnet_feature_importances(model, who, pnet_dataset, save_dir)
+            )
+
             proba_2col = np.stack([1 - y_probas, y_probas], axis=1)
             log_plots_to_wandb(who, y, y_preds, proba_2col)
+        elif who == "train":
+            logger.warn(
+                "Skipping feature importances for the training set. Causing runs to crash due to OOM errors, and don't think I need these anyway."
+            )
+            return metric_dict, None, None, None
 
         return (
             metric_dict,
