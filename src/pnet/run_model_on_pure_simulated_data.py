@@ -5,9 +5,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from scipy.stats import norm
+from sklearn.model_selection import train_test_split
 
 import wandb
-from pnet import Pnet, report_and_eval
+from pnet import Pnet, pnet_loader, report_and_eval, util
 
 logging.basicConfig(
     encoding="utf-8",
@@ -163,9 +164,18 @@ def get_module_genes_basic(num_genes, perturbed_genes, frac=0.5):
     return module_genes
 
 
-def simulate_dataset(num_genes=1000, n0=1000, n1=1000, OR=10.0, sigma=1.0, num_perturbed_mu_genes=20):  # simplest case
+def simulate_dataset(
+    num_genes=1000,
+    n0=1000,
+    n1=1000,
+    OR=10.0,
+    sigma=1.0,
+    num_perturbed_mu_genes=20,
+    sample_binary=True,
+    mu0_range=(0.1, 0.1),
+):  # simplest case
     mu0, mu1, perturbed_genes = make_mu_vectors(
-        num_genes, high_or_genes=num_perturbed_mu_genes, OR=OR, mu0_range=(0.1, 0.1)
+        num_genes, high_or_genes=num_perturbed_mu_genes, OR=OR, mu0_range=mu0_range
     )
 
     mod1_genes = get_module_genes_basic(num_genes, perturbed_genes, frac=0.5)
@@ -178,8 +188,12 @@ def simulate_dataset(num_genes=1000, n0=1000, n1=1000, OR=10.0, sigma=1.0, num_p
     Sigma1 = correlation_to_covariance(R1, mu1)
     Sigma0 = correlation_to_covariance(R0, mu0)
 
-    X1 = sample_binary_genotypes(mu1, Sigma1, n1)
-    X0 = sample_binary_genotypes(mu0, Sigma0, n0)
+    if sample_binary:
+        X1 = sample_binary_genotypes(mu1, Sigma1, n1)
+        X0 = sample_binary_genotypes(mu0, Sigma0, n0)
+    else:
+        X1 = sample_continuous_genotypes(mu1, Sigma1, n1)
+        X0 = sample_continuous_genotypes(mu0, Sigma0, n0)
 
     y = np.concatenate([np.ones(n1), np.zeros(n0)])
     X = np.vstack([X1, X0])
@@ -219,10 +233,38 @@ def _get_gene_list():
 #     return model
 
 
-def train_model_pnet(hparams, genetic_data, y, delete_model_after_training=False):
+def stratified_train_val_test_split(labels, train_size=0.7, val_size=0.15, test_size=0.15, seed=None, logger=None):
+    assert abs(train_size + val_size + test_size - 1.0) < 1e-6, "Splits must sum to 1.0"
+
+    # First split: train vs temp (val + test)
+    train_inds, temp_inds = train_test_split(
+        labels.index, test_size=(val_size + test_size), stratify=labels, random_state=seed
+    )
+
+    # Second split: val vs test from temp
+    temp_labels = labels.loc[temp_inds]
+    val_ratio = val_size / (val_size + test_size)
+    val_inds, test_inds = train_test_split(
+        temp_inds,
+        test_size=(1 - val_ratio),  # 50% test if val:test = 0.15:0.15
+        stratify=temp_labels,
+        random_state=seed,
+    )
+
+    if logger is not None:
+        for name, inds in zip(["training", "validation", "test"], [train_inds, val_inds, test_inds]):
+            class_counts = labels.loc[inds].value_counts(normalize=True)
+            logger.info(f"{name.title()} set: {len(inds)} samples")
+            logger.info(f"Class distribution:\n{class_counts.to_string()}")
+
+    return train_inds.tolist(), val_inds.tolist(), test_inds.tolist()
+
+
+def train_model_pnet(hparams, genetic_data, y, train_inds=None, test_inds=None):
     logger.info("Training PNET model")
     model_save_path = os.path.join(hparams["save_dir"], "model.pt")
 
+    # Pnet.run will do auto 70/30 train/val split if not passed train/test indices
     model, train_losses, test_losses, train_dataset, test_dataset = Pnet.run(
         genetic_data,
         y,
@@ -236,6 +278,8 @@ def train_model_pnet(hparams, genetic_data, y, delete_model_after_training=False
         verbose=hparams["verbose"],
         early_stopping=hparams["early_stopping"],
         seed=hparams["random_seed"],
+        train_inds=train_inds,
+        test_inds=test_inds,
     )
 
     logger.info("Logging loss curve")
@@ -243,14 +287,7 @@ def train_model_pnet(hparams, genetic_data, y, delete_model_after_training=False
     wandb.log({"convergence plot": plt})
     report_and_eval.savefig(plt, os.path.join(hparams["save_dir"], "loss_over_time"))
 
-    if delete_model_after_training:
-        try:
-            os.remove(model_save_path)
-            logger.info(f"Deleted model file at: {model_save_path}")
-        except OSError as e:
-            logger.warning(f"Failed to delete model file: {e}")
-
-    return model, train_losses, test_losses, train_dataset, test_dataset
+    return model, train_losses, test_losses, train_dataset, test_dataset, model_save_path
 
 
 def evaluate_and_log_results(model, train_dataset, test_dataset, model_type, save_dir, eval_set_name):
@@ -263,16 +300,58 @@ def evaluate_and_log_results(model, train_dataset, test_dataset, model_type, sav
     )
 
 
+def evaluate_on_train_val_test(model, genetic_data, y, train_inds, val_inds, test_inds, hparams, task="BC"):
+    """
+    Evaluate a trained model on train, val, and test splits using PnetDataset.
+
+    Args:
+        model: Trained model object
+        genetic_data: Input feature data (e.g., DataFrame or tensor)
+        y: Target labels (Pandas Series or compatible)
+        train_inds, val_inds, test_inds: Index arrays for each split
+        hparams: Dict of hyperparameters including model_type and save_dir
+    """
+    y = util.format_target(y, task)
+
+    for split_name, split_inds in zip(["train", "validation", "test"], [train_inds, val_inds, test_inds]):
+        logger.info(f"Evaluating model on {split_name} set ({len(split_inds)} samples)")
+
+        split_dataset = pnet_loader.PnetDataset(genetic_data, target=y, indicies=split_inds)
+
+        report_and_eval.evaluate_interpret_save(
+            model=model,
+            pnet_dataset=split_dataset,
+            model_type=hparams["model_type"],
+            who=split_name,
+            save_dir=hparams["save_dir"],
+        )
+    return
+
+
+def cleanup(model_save_path, delete_model_after_training=False):
+    """
+    Delete the saved model if delete_model_after_training is True.
+    """
+    if delete_model_after_training:
+        try:
+            os.remove(model_save_path)
+            logger.info(f"Deleted model file at: {model_save_path}")
+        except OSError as e:
+            logger.warning(f"Failed to delete model file: {e}")
+    return
+
+
 def main():
     # os.chdir("/mnt/disks/gmiller_data1/pnet/src/pnet")  # dealing with hardcoded paths in pnet repo
 
     seed = 42
     model_type = "pnet"
-    evaluation_set = "test"
+    evaluation_set = "validation"
     wandb_group = "simulated_data_001"  # basic example where all perturbed genes share the same OR, and all module genes share same sigma
+    # wandb_group = "simulated_data_002"  # basic example where all perturbed genes share the same OR, and all module genes share same sigma, increased num samples 10x compared to version 001
 
     # Build hparams
-    hparams = {
+    base_hparams = {
         "epochs": 400,
         "early_stopping": True,
         "batch_size": 64,
@@ -285,24 +364,39 @@ def main():
         "lr": 1e-3,
         "weight_decay": 1e-3,
         "delete_model_after_training": True,
+        "sample_binary": False,  # do you want to sample binary genotypes or continuous genotypes?
+        "mu0_range": (
+            0.1,
+            0.1,
+        ),  # range from which to sample mu0 values (for binary, this is the probability of the reference allele; for continuous, this is the mean of the Gaussian distribution e.g. mean gene expression level)
     }
 
     ORs_to_test = [10, 2, 1.1, 1.0]  # reversed order so get the most extreme results first
     sigmas_to_test = [0.8, 0.5, 0.1, 0]
+    num_class1_samples = 500
+    num_class0_samples = 500
 
     for OR in ORs_to_test:
         for sigma in sigmas_to_test:
-            run_name = f"OR_{OR}_sigma_{sigma}"
+            run_name = f"OR_{OR}_sigma_{sigma}_n1_{num_class1_samples}_n0_{num_class0_samples}"
+            logger.info(f"Starting run: {run_name}")
             run = wandb.init(project="prostate_met_status", group=wandb_group, name=run_name, reinit=True)
-            run.log({"OR": OR, "sigma": sigma})
 
-            save_dir = f"/mnt/disks/gmiller_data1/pnet/results/simulated_data/{model_type}_eval_set_{evaluation_set}/wandbID_{run.id}"
+            save_dir = f"/mnt/disks/gmiller_data1/pnet/results/{wandb_group}/{model_type}_eval_set_{evaluation_set}/wandbID_{run.id}"
+            logger.info(f"Results will be saved to {save_dir}")
             # make dir if doesn't already exist
             os.makedirs(save_dir, exist_ok=True)
 
             logger.info(f"Simulating dataset with OR={OR}, sigma={sigma}...")
             X, y, mu0, mu1, mod0_genes, mod1_genes, deltaMuGenes = simulate_dataset(
-                num_genes=100, n0=500, n1=500, OR=OR, sigma=sigma, num_perturbed_mu_genes=20
+                num_genes=100,
+                n0=num_class0_samples,
+                n1=num_class1_samples,
+                OR=OR,
+                sigma=sigma,
+                num_perturbed_mu_genes=20,
+                sample_binary=base_hparams["sample_binary"],
+                mu0_range=base_hparams["mu0_range"],
             )
 
             logger.info("Prepping simulated data for PNET...")
@@ -316,8 +410,18 @@ def main():
 
             # add sample IDs to y, make y a pandas DF, ensure class is type int
             y = pd.DataFrame(y.astype(int), index=X.index, columns=["class"])
-            genetic_data = {"simulated_binary": X}
+            genetic_data = {"simulated_binary": X} if base_hparams["sample_binary"] else {"simulated_continuous": X}
             logger.info("Simulated data prepared for PNET.")
+
+            # Make train/val/test indicies with equal class balance in 70/15/15 split
+            train_inds, val_inds, test_inds = stratified_train_val_test_split(
+                y["class"],
+                train_size=0.7,
+                val_size=0.15,
+                test_size=0.15,
+                seed=base_hparams["random_seed"],
+                logger=logger,
+            )
 
             # Update hparams with current OR and sigma
             hparams = {
@@ -325,28 +429,46 @@ def main():
                 "sigma": sigma,
                 "num_genes": X.shape[1],
                 "num_samples": X.shape[0],
+                "num_class1_samples": num_class1_samples,
+                "num_class0_samples": num_class0_samples,
                 "mod0_genes": mod0_genes,
                 "mod1_genes": mod1_genes,
                 "deltaMuGenes": deltaMuGenes,
                 "num_perturbed_mu_genes": len(deltaMuGenes),
                 "num_genes_in_mod1": len(mod1_genes),
                 "save_dir": save_dir,
-                **hparams,
+                "datasets": list(genetic_data.keys()),
+                **base_hparams,
             }
             run.config.update(hparams)
 
             logger.info(f"Running {model_type} model on simulated data with hparams: {hparams}")
             if model_type == "pnet":
-                model, _, _, train_dataset, test_dataset = train_model_pnet(
-                    hparams, genetic_data, y, delete_model_after_training=hparams["delete_model_after_training"]
+                model, _, _, train_dataset, val_dataset, model_save_path = train_model_pnet(
+                    hparams, genetic_data, y, train_inds=train_inds, test_inds=val_inds
                 )
-                evaluate_and_log_results(
-                    model,
-                    train_dataset,
-                    test_dataset,
-                    hparams["model_type"],
-                    hparams["save_dir"],
-                    hparams["evaluation_set"],
+                # evaluate_and_log_results(
+                #     model,
+                #     train_dataset,
+                #     val_dataset,
+                #     hparams["model_type"],
+                #     hparams["save_dir"],
+                #     hparams["evaluation_set"],
+                # )
+
+                evaluate_on_train_val_test(
+                    model=model,
+                    genetic_data=genetic_data,
+                    y=y,
+                    train_inds=train_inds,
+                    val_inds=val_inds,
+                    test_inds=test_inds,
+                    hparams=hparams,
+                )
+
+                cleanup(
+                    model_save_path=model_save_path,
+                    delete_model_after_training=hparams["delete_model_after_training"],
                 )
 
 
