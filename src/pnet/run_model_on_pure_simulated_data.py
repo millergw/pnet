@@ -1,3 +1,4 @@
+import argparse
 import logging
 import os
 
@@ -6,6 +7,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 from sklearn.model_selection import train_test_split
+import seaborn as sns
 
 import wandb
 from pnet import Pnet, pnet_loader, report_and_eval, util
@@ -15,7 +17,7 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)-8s [%(name)s] %(message)s",
     level=logging.INFO,
     datefmt="%Y-%m-%d %H:%M:%S",
-    force=True,
+    # force=True,
 )
 
 logger = logging.getLogger(__name__)
@@ -23,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 def compute_mu1_from_or(mu0, OR):
     "Compute the alternative allele frequency mu1 given the reference allele frequency mu0 and odds ratio OR."
-    logging.debug(f"Computing mu1 from mu0 with OR={OR}.")
+    logger.debug(f"Computing mu1 from mu0 with OR={OR}.")
     return (mu0 * OR) / (1 + mu0 * (OR - 1))
 
 
@@ -80,12 +82,37 @@ def make_block_correlation_matrix(num_genes, module_genes, sigma, noise_std=0.01
     return R
 
 
-def correlation_to_covariance(R, mu):
+# def correlation_to_covariance(R, mu):
+#     """
+#     Scale the correlation matrix by the standard deviations of each gene's Bernoulli distribution, producing the covariance matrix.
+#     """
+#     std = np.sqrt(mu * (1 - mu))
+#     return R * np.outer(std, std)
+
+
+def correlation_to_covariance(R, mu, mode="binary", gene_std=None):
     """
-    Scale the correlation matrix by the standard deviations of each gene's Bernoulli distribution, producing the covariance matrix.
+    Construct a covariance matrix from a correlation matrix R.
+
+    Parameters:
+        R (np.ndarray): Correlation matrix of shape (G, G)
+        mu (np.ndarray): Mean vector of shape (G,)
+        mode (str): "binary" or "continuous"
+        gene_std (np.ndarray or None): Std dev per gene (only used if mode="continuous")
+
+    Returns:
+        Sigma (np.ndarray): Covariance matrix of shape (G, G)
     """
-    std = np.sqrt(mu * (1 - mu))
-    return R * np.outer(std, std)
+    if mode == "binary":
+        Sigma = R  # Use latent correlation structure directly
+    elif mode == "continuous":
+        if gene_std is None:
+            gene_std = np.ones_like(mu)  # Default to unit variance if not specified
+        Sigma = R * np.outer(gene_std, gene_std)
+    else:
+        raise ValueError("mode must be either 'binary' or 'continuous'")
+    assert np.all(np.diag(Sigma) > 1e-6), "Covariance matrix has near-zero variance."
+    return Sigma
 
 
 def sample_continuous_genotypes(mu, Sigma, n_samples):
@@ -115,6 +142,12 @@ def sample_binary_genotypes(mu, Sigma, n_samples):
     )
     z = np.random.multivariate_normal(mean=np.zeros(len(mu)), cov=Sigma, size=n_samples)
     thresholds = norm.ppf(1 - mu)
+
+    # DEBUGGING PRINTS
+    logger.debug(f"Sigma diagonal (first 5): {np.round(np.diag(Sigma)[:5], 4)}")
+    logger.debug(f"Sampled z (first 2 samples): {np.round(z[:2], 3)}")
+    logger.debug(f"Thresholds (first 5): {np.round(thresholds[:5], 3)}")
+
     return (z > thresholds).astype(int)
 
 
@@ -164,6 +197,23 @@ def get_module_genes_basic(num_genes, perturbed_genes, frac=0.5):
     return module_genes
 
 
+# Example: visualize heatmap matrix for specific genes
+def visualize_matrix(matrix, title="Heatmap", gene_indices=None):
+    if gene_indices is not None:
+        matrix_subset = matrix[np.ix_(gene_indices, gene_indices)]
+    else:
+        matrix_subset = matrix
+
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(matrix_subset, cmap="coolwarm", center=0, annot=False)
+
+    plt.title(title)
+    plt.xlabel("Gene index")
+    plt.ylabel("Gene index")
+    plt.tight_layout()
+    plt.show()
+
+
 def simulate_dataset(
     num_genes=1000,
     n0=1000,
@@ -174,6 +224,9 @@ def simulate_dataset(
     sample_binary=True,
     mu0_range=(0.1, 0.1),
 ):  # simplest case
+    
+    mode = "binary" if sample_binary else "continuous"
+
     mu0, mu1, perturbed_genes = make_mu_vectors(
         num_genes, high_or_genes=num_perturbed_mu_genes, OR=OR, mu0_range=mu0_range
     )
@@ -184,9 +237,17 @@ def simulate_dataset(
 
     R1 = make_block_correlation_matrix(num_genes, mod1_genes, sigma)
     R0 = make_block_correlation_matrix(num_genes, mod0_genes, sigma)
+    
+    # logger.debug(visualize_matrix(R1, gene_indices=mod1_genes, title="R1 (mod1 genes)"))
+    # logger.debug(visualize_matrix(R0, gene_indices=mod0_genes, title="R0 (mod0 genes)"))
+    # logger.debug(visualize_matrix(R1, gene_indices=None, title="R1 all genes"))
 
-    Sigma1 = correlation_to_covariance(R1, mu1)
-    Sigma0 = correlation_to_covariance(R0, mu0)
+    Sigma1 = correlation_to_covariance(R1, mu1, mode=mode)
+    Sigma0 = correlation_to_covariance(R0, mu0, mode=mode)
+    
+    # logger.debug(visualize_matrix(Sigma1, gene_indices=mod1_genes, title="Sigma1 (mod1 genes)"))
+    # logger.debug(visualize_matrix(Sigma0, gene_indices=mod0_genes, title="Sigma0 (mod0 genes)"))
+    # logger.debug(visualize_matrix(Sigma1, gene_indices=None, title="Sigma1 all genes"))
 
     if sample_binary:
         X1 = sample_binary_genotypes(mu1, Sigma1, n1)
@@ -194,6 +255,20 @@ def simulate_dataset(
     else:
         X1 = sample_continuous_genotypes(mu1, Sigma1, n1)
         X0 = sample_continuous_genotypes(mu0, Sigma0, n0)
+
+    # # Compute empirical frequencies per gene (i.e., mean across rows)
+    # emp_mu0 = np.round(X0.mean(axis=0), 2)
+    # emp_mu1 = np.round(X1.mean(axis=0), 2)
+    # logger.debug(f"mu0, class 0: {mu0}")
+    # logger.debug(f"mu1, class 1: {mu1}")
+    # logger.debug(f"empirical frequencies per gene, class 0: {emp_mu0}")
+    # logger.debug(f"empirical frequencies per gene, class 1: {emp_mu1}")
+    # # Optional: find genes with all 0s
+    # zero_var_genes_0 = np.where(emp_mu0 == 0)[0]
+    # zero_var_genes_1 = np.where(emp_mu1 == 0)[0]
+    # logger.debug(f"Genes with all 0s in class 0 that are in mod1: {[i for i in zero_var_genes_0 if i in mod1_genes]}")
+    # logger.debug(f"Genes with all 0s in class 1 that are in mod1: {[ i for i in zero_var_genes_1 if i in mod1_genes]}")
+
 
     y = np.concatenate([np.ones(n1), np.zeros(n0)])
     X = np.vstack([X1, X0])
@@ -341,135 +416,142 @@ def cleanup(model_save_path, delete_model_after_training=False):
     return
 
 
-def main():
-    # os.chdir("/mnt/disks/gmiller_data1/pnet/src/pnet")  # dealing with hardcoded paths in pnet repo
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Generate simulated data by sampling from joint distribution defined by an odds ratio and a sigma."
+    )
+    parser.add_argument("--odds_ratio", type=float, default=10.0, help="Odds ratio to simulate")
+    parser.add_argument(
+        "--sigma", type=float, default=0.0, help="Correlation strength between genes in the class-specific module"
+    )
+    parser.add_argument("--num_class1_samples", type=int, default=500, help="Number of class 1 samples")
+    parser.add_argument("--num_class0_samples", type=int, default=500, help="Number of class 0 samples")
+    parser.add_argument(
+        "--sampling_strategy",
+        type=str,
+        default="continuous",
+        choices=["binary", "continuous"],
+        help="Sampling type: 'binary' or 'continuous' (default: continuous)",
+    )
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--model_type", type=str, default="pnet", help="Model type (default: pnet)")
+    parser.add_argument("--evaluation_set", type=str, default="validation", help="Evaluation set (default: validation)")
+    parser.add_argument("--wandb_group", type=str, default="simulated_data_001", help="wandb group name")
+    return parser.parse_args()
 
-    seed = 42
-    model_type = "pnet"
-    evaluation_set = "validation"
-    wandb_group = "simulated_data_001"  # basic example where all perturbed genes share the same OR, and all module genes share same sigma
-    # wandb_group = "simulated_data_002"  # basic example where all perturbed genes share the same OR, and all module genes share same sigma, increased num samples 10x compared to version 001
+
+def main():
+    args = parse_args()
+
+    run_name = f"OR_{args.odds_ratio}_sigma_{args.sigma}_n1_{args.num_class1_samples}_n0_{args.num_class0_samples}"
+    logger.info(f"Starting run: {run_name}")
+    run = wandb.init(project="prostate_met_status", group=args.wandb_group, name=run_name, reinit=True)
+
+    save_dir = f"/mnt/disks/gmiller_data1/pnet/results/{args.wandb_group}/{args.model_type}_eval_set_{args.evaluation_set}/wandbID_{run.id}"
+    logger.info(f"Results will be saved to {save_dir}")
+    os.makedirs(save_dir, exist_ok=True)
 
     # Build hparams
     base_hparams = {
         "epochs": 400,
         "early_stopping": True,
         "batch_size": 64,
-        "verbose": True,
-        "random_seed": seed,
-        "model_type": model_type,
-        "evaluation_set": evaluation_set,
+        "verbose": False,
+        "random_seed": args.seed,
+        "model_type": args.model_type,
+        "evaluation_set": args.evaluation_set,
         "dropout": 0.2,
         "input_dropout": 0.5,
         "lr": 1e-3,
         "weight_decay": 1e-3,
         "delete_model_after_training": True,
-        "sample_binary": False,  # do you want to sample binary genotypes or continuous genotypes?
+        "sample_binary": args.sampling_strategy == "binary",
         "mu0_range": (
             0.1,
             0.1,
         ),  # range from which to sample mu0 values (for binary, this is the probability of the reference allele; for continuous, this is the mean of the Gaussian distribution e.g. mean gene expression level)
     }
 
-    ORs_to_test = [10, 2, 1.1, 1.0]  # reversed order so get the most extreme results first
-    sigmas_to_test = [0.8, 0.5, 0.1, 0]
-    num_class1_samples = 500
-    num_class0_samples = 500
+    logger.info(f"Simulating dataset with OR={args.odds_ratio}, sigma={args.sigma}...")
+    X, y, mu0, mu1, mod0_genes, mod1_genes, deltaMuGenes = simulate_dataset(
+        num_genes=100,
+        n0=args.num_class0_samples,
+        n1=args.num_class1_samples,
+        OR=args.odds_ratio,
+        sigma=args.sigma,
+        num_perturbed_mu_genes=20,
+        sample_binary=base_hparams["sample_binary"],
+        mu0_range=base_hparams["mu0_range"],
+    )
 
-    for OR in ORs_to_test:
-        for sigma in sigmas_to_test:
-            run_name = f"OR_{OR}_sigma_{sigma}_n1_{num_class1_samples}_n0_{num_class0_samples}"
-            logger.info(f"Starting run: {run_name}")
-            run = wandb.init(project="prostate_met_status", group=wandb_group, name=run_name, reinit=True)
+    logger.info("Prepping simulated data for PNET...")
+    gene_names = _get_gene_list()[: X.shape[1]]  # Ensure gene_names matches the number of columns in X
+    assert len(gene_names) == X.shape[1], "Not enough gene names for number of features"
+    X, mod0_genes, mod1_genes, deltaMuGenes = add_gene_names(
+        X, mod0_genes, mod1_genes, deltaMuGenes, gene_names=gene_names
+    )
 
-            save_dir = f"/mnt/disks/gmiller_data1/pnet/results/{wandb_group}/{model_type}_eval_set_{evaluation_set}/wandbID_{run.id}"
-            logger.info(f"Results will be saved to {save_dir}")
-            # make dir if doesn't already exist
-            os.makedirs(save_dir, exist_ok=True)
+    # Add sample IDs to X and y
+    X.index = [f"Sample_{i}" for i in range(X.shape[0])]
 
-            logger.info(f"Simulating dataset with OR={OR}, sigma={sigma}...")
-            X, y, mu0, mu1, mod0_genes, mod1_genes, deltaMuGenes = simulate_dataset(
-                num_genes=100,
-                n0=num_class0_samples,
-                n1=num_class1_samples,
-                OR=OR,
-                sigma=sigma,
-                num_perturbed_mu_genes=20,
-                sample_binary=base_hparams["sample_binary"],
-                mu0_range=base_hparams["mu0_range"],
-            )
+    # add sample IDs to y, make y a pandas DF, ensure class is type int
+    y = pd.DataFrame(y.astype(int), index=X.index, columns=["class"])
+    genetic_data = {"simulated_binary": X} if base_hparams["sample_binary"] else {"simulated_continuous": X}
+    logger.info("Simulated data prepared for PNET.")
 
-            logger.info("Prepping simulated data for PNET...")
-            gene_names = _get_gene_list()[: X.shape[1]]  # Ensure gene_names matches the number of columns in X
-            X, mod0_genes, mod1_genes, deltaMuGenes = add_gene_names(
-                X, mod0_genes, mod1_genes, deltaMuGenes, gene_names=gene_names
-            )
+    # Make train/val/test indicies with equal class balance in 70/15/15 split
+    train_inds, val_inds, test_inds = stratified_train_val_test_split(
+        y["class"],
+        train_size=0.7,
+        val_size=0.15,
+        test_size=0.15,
+        seed=base_hparams["random_seed"],
+        logger=logger,
+    )
 
-            # Add sample IDs to X and y
-            X.index = [f"Sample_{i}" for i in range(X.shape[0])]
+    # Update hparams with current OR and sigma
+    hparams = {
+        "odds_ratio": args.odds_ratio,
+        "sigma": args.sigma,
+        "num_genes": X.shape[1],
+        "num_samples": X.shape[0],
+        "num_class1_samples": args.num_class1_samples,
+        "num_class0_samples": args.num_class0_samples,
+        "mod0_genes": mod0_genes,
+        "mod1_genes": mod1_genes,
+        "deltaMuGenes": deltaMuGenes,
+        "num_perturbed_mu_genes": len(deltaMuGenes),
+        "num_genes_in_mod1": len(mod1_genes),
+        "save_dir": save_dir,
+        "datasets": list(genetic_data.keys()),
+        **base_hparams,
+    }
+    run.config.update(hparams)
 
-            # add sample IDs to y, make y a pandas DF, ensure class is type int
-            y = pd.DataFrame(y.astype(int), index=X.index, columns=["class"])
-            genetic_data = {"simulated_binary": X} if base_hparams["sample_binary"] else {"simulated_continuous": X}
-            logger.info("Simulated data prepared for PNET.")
+    logger.info(f"Running {args.model_type} model on simulated data with hparams: {hparams}")
+    if args.model_type == "pnet":
+        model, _, _, train_dataset, val_dataset, model_save_path = train_model_pnet(
+            hparams, genetic_data, y, train_inds=train_inds, test_inds=val_inds
+        )
 
-            # Make train/val/test indicies with equal class balance in 70/15/15 split
-            train_inds, val_inds, test_inds = stratified_train_val_test_split(
-                y["class"],
-                train_size=0.7,
-                val_size=0.15,
-                test_size=0.15,
-                seed=base_hparams["random_seed"],
-                logger=logger,
-            )
+        evaluate_on_train_val_test(
+            model=model,
+            genetic_data=genetic_data,
+            y=y,
+            train_inds=train_inds,
+            val_inds=val_inds,
+            test_inds=test_inds,
+            hparams=hparams,
+        )
 
-            # Update hparams with current OR and sigma
-            hparams = {
-                "odds_ratio": OR,
-                "sigma": sigma,
-                "num_genes": X.shape[1],
-                "num_samples": X.shape[0],
-                "num_class1_samples": num_class1_samples,
-                "num_class0_samples": num_class0_samples,
-                "mod0_genes": mod0_genes,
-                "mod1_genes": mod1_genes,
-                "deltaMuGenes": deltaMuGenes,
-                "num_perturbed_mu_genes": len(deltaMuGenes),
-                "num_genes_in_mod1": len(mod1_genes),
-                "save_dir": save_dir,
-                "datasets": list(genetic_data.keys()),
-                **base_hparams,
-            }
-            run.config.update(hparams)
-
-            logger.info(f"Running {model_type} model on simulated data with hparams: {hparams}")
-            if model_type == "pnet":
-                model, _, _, train_dataset, val_dataset, model_save_path = train_model_pnet(
-                    hparams, genetic_data, y, train_inds=train_inds, test_inds=val_inds
-                )
-                # evaluate_and_log_results(
-                #     model,
-                #     train_dataset,
-                #     val_dataset,
-                #     hparams["model_type"],
-                #     hparams["save_dir"],
-                #     hparams["evaluation_set"],
-                # )
-
-                evaluate_on_train_val_test(
-                    model=model,
-                    genetic_data=genetic_data,
-                    y=y,
-                    train_inds=train_inds,
-                    val_inds=val_inds,
-                    test_inds=test_inds,
-                    hparams=hparams,
-                )
-
-                cleanup(
-                    model_save_path=model_save_path,
-                    delete_model_after_training=hparams["delete_model_after_training"],
-                )
+        cleanup(
+            model_save_path=model_save_path,
+            delete_model_after_training=hparams["delete_model_after_training"],
+        )
+    else:
+        raise ValueError(
+            f"Model type {args.model_type} not supported. Please implement training logic for this model type."
+        )
 
 
 if __name__ == "__main__":
