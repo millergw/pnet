@@ -15,7 +15,7 @@ from pnet import Pnet, pnet_loader, report_and_eval, util
 logging.basicConfig(
     encoding="utf-8",
     format="%(asctime)s %(levelname)-8s [%(name)s] %(message)s",
-    level=logging.INFO,
+    level=logging.DEBUG,
     datefmt="%Y-%m-%d %H:%M:%S",
     # force=True,
 )
@@ -80,14 +80,6 @@ def make_block_correlation_matrix(num_genes, module_genes, sigma, noise_std=0.01
                 R[i, j] = sigma
                 R[j, i] = sigma
     return R
-
-
-# def correlation_to_covariance(R, mu):
-#     """
-#     Scale the correlation matrix by the standard deviations of each gene's Bernoulli distribution, producing the covariance matrix.
-#     """
-#     std = np.sqrt(mu * (1 - mu))
-#     return R * np.outer(std, std)
 
 
 def correlation_to_covariance(R, mu, mode="binary", gene_std=None):
@@ -211,7 +203,7 @@ def visualize_matrix(matrix, title="Heatmap", gene_indices=None):
     plt.xlabel("Gene index")
     plt.ylabel("Gene index")
     plt.tight_layout()
-    plt.show()
+    return plt
 
 
 def simulate_dataset(
@@ -238,16 +230,24 @@ def simulate_dataset(
     R1 = make_block_correlation_matrix(num_genes, mod1_genes, sigma)
     R0 = make_block_correlation_matrix(num_genes, mod0_genes, sigma)
     
+    logger.debug("Compute correlation (R) heatmaps...")
     # logger.debug(visualize_matrix(R1, gene_indices=mod1_genes, title="R1 (mod1 genes)"))
     # logger.debug(visualize_matrix(R0, gene_indices=mod0_genes, title="R0 (mod0 genes)"))
     # logger.debug(visualize_matrix(R1, gene_indices=None, title="R1 all genes"))
+    wandb.log({f"R1": wandb.Image(visualize_matrix(R1, gene_indices=mod1_genes, title="R1 (mod1 genes)"))})
+    wandb.log({f"R0": wandb.Image(visualize_matrix(R0, gene_indices=mod0_genes, title="R0 (mod0 genes)"))})
+    wandb.log({f"R1": wandb.Image(visualize_matrix(R1, gene_indices=None, title="R1 (all genes)"))})
 
     Sigma1 = correlation_to_covariance(R1, mu1, mode=mode)
     Sigma0 = correlation_to_covariance(R0, mu0, mode=mode)
     
+    logger.debug("Compute covariance (Sigma) heatmaps...")
     # logger.debug(visualize_matrix(Sigma1, gene_indices=mod1_genes, title="Sigma1 (mod1 genes)"))
     # logger.debug(visualize_matrix(Sigma0, gene_indices=mod0_genes, title="Sigma0 (mod0 genes)"))
     # logger.debug(visualize_matrix(Sigma1, gene_indices=None, title="Sigma1 all genes"))
+    wandb.log({f"Sigma1": wandb.Image(visualize_matrix(Sigma1, gene_indices=mod1_genes, title="Sigma1 (mod1 genes)"))})
+    wandb.log({f"Sigma0": wandb.Image(visualize_matrix(Sigma0, gene_indices=mod0_genes, title="Sigma0 (mod0 genes)"))})
+    wandb.log({f"Sigma1": wandb.Image(visualize_matrix(Sigma1, gene_indices=None, title="Sigma1 (all genes)"))})
 
     if sample_binary:
         X1 = sample_binary_genotypes(mu1, Sigma1, n1)
@@ -256,18 +256,18 @@ def simulate_dataset(
         X1 = sample_continuous_genotypes(mu1, Sigma1, n1)
         X0 = sample_continuous_genotypes(mu0, Sigma0, n0)
 
-    # # Compute empirical frequencies per gene (i.e., mean across rows)
-    # emp_mu0 = np.round(X0.mean(axis=0), 2)
-    # emp_mu1 = np.round(X1.mean(axis=0), 2)
-    # logger.debug(f"mu0, class 0: {mu0}")
-    # logger.debug(f"mu1, class 1: {mu1}")
-    # logger.debug(f"empirical frequencies per gene, class 0: {emp_mu0}")
-    # logger.debug(f"empirical frequencies per gene, class 1: {emp_mu1}")
-    # # Optional: find genes with all 0s
-    # zero_var_genes_0 = np.where(emp_mu0 == 0)[0]
-    # zero_var_genes_1 = np.where(emp_mu1 == 0)[0]
-    # logger.debug(f"Genes with all 0s in class 0 that are in mod1: {[i for i in zero_var_genes_0 if i in mod1_genes]}")
-    # logger.debug(f"Genes with all 0s in class 1 that are in mod1: {[ i for i in zero_var_genes_1 if i in mod1_genes]}")
+    logger.debug("Compute empirical frequencies per gene (i.e., mean across rows)...")
+    emp_mu0 = np.round(X0.mean(axis=0), 2)
+    emp_mu1 = np.round(X1.mean(axis=0), 2)
+    logger.debug(f"mu0, class 0: {mu0}")
+    logger.debug(f"mu1, class 1: {mu1}")
+    logger.debug(f"empirical frequencies per gene, class 0: {emp_mu0}")
+    logger.debug(f"empirical frequencies per gene, class 1: {emp_mu1}")
+    # Optional: find genes with all 0s
+    zero_var_genes_0 = np.where(emp_mu0 == 0)[0]
+    zero_var_genes_1 = np.where(emp_mu1 == 0)[0]
+    logger.debug(f"Genes with all 0s in class 0 that are in mod1: {[i for i in zero_var_genes_0 if i in mod1_genes]}")
+    logger.debug(f"Genes with all 0s in class 1 that are in mod1: {[ i for i in zero_var_genes_1 if i in mod1_genes]}")
 
 
     y = np.concatenate([np.ones(n1), np.zeros(n0)])
