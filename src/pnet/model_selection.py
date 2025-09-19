@@ -46,10 +46,16 @@ def run_pnet(genetic_data, y, train_inds, test_inds):
     return model, train_dataset, test_dataset, train_scores, test_scores, auc, gene_imp, layerwise_imp
 
 
-def run_rf(x_train, y_train, max_depth=None, random_seed=None, min_samples_split=2):
+def run_rf(
+    x_train, y_train, max_depth=None, random_seed=None, min_samples_split=2, n_estimators=100, min_samples_leaf=1
+):
     logger.info("Running Random Forest (RF) model")
     model = RandomForestClassifier(
-        n_estimators=100, max_depth=max_depth, random_state=random_seed, min_samples_split=min_samples_split
+        n_estimators=n_estimators,
+        max_depth=max_depth,
+        random_state=random_seed,
+        min_samples_split=min_samples_split,
+        min_samples_leaf=min_samples_leaf,
     )
     model.fit(x_train, y_train)
     return model

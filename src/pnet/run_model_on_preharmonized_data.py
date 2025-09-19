@@ -68,15 +68,8 @@ def parse_arguments():
         default="",
         help="W&B run ID that created the data in the input_data_dir, if applicable",
     )
-    # parser.add('--genetic_data', type=yaml.load, help="TODO: dictionary-style yaml")
     parser.add(
         "--cpus", type=int, required=False, help="Define the number of CPUs PyTorch uses during parallelization tasks"
-    )
-    parser.add(
-        "--min_samples_split",
-        type=int,
-        default=2,
-        help="Define the min number of samples used to make RF split (best practice usually 5-10% of dataset)",
     )
     parser.add(
         "--input_dropout", default=0.5, type=float, help="Proportion of dropout between the input layer and gene layer"
@@ -106,6 +99,24 @@ def parse_arguments():
         default=500,
         help="Number of epochs to train the model (default: 500)",
     )
+    parser.add(
+        "--max_depth",
+        type=int,
+        default=None,
+        help="Maximum depth of the tree for Random Forest (default: None, which means no limit. Use with caution as it can lead to overfitting)",
+    )
+    parser.add(
+        "--min_samples_leaf",
+        type=int,
+        default=1,
+        help="Minimum number of samples required to be at a leaf node for Random Forest (default: 1)",
+    )
+    parser.add(
+        "--min_samples_split",
+        type=int,
+        default=50,
+        help="Define the min number of samples used to make RF split (best practice usually 5-10% of dataset)",
+    )
     return parser.parse_args()
 
 
@@ -129,6 +140,26 @@ def load_input_data(config, input_dir):
     return genetic_data, confounder_df, target_df
 
 
+def get_train_val_test_indices(
+    split_dir, train_ind_f="training_set.csv", validation_ind_f="validation_set.csv", test_ind_f="test_set.csv"
+):
+    """
+    Load train, validation, and test indices from CSV files in the specified directory.
+    The CSV files should contain 'id' and 'response' columns.
+    """
+    train_inds = pd.read_csv(
+        os.path.join(split_dir, train_ind_f), usecols=["id", "response"], index_col="id"
+    ).index.tolist()
+    validation_inds = pd.read_csv(
+        os.path.join(split_dir, validation_ind_f), usecols=["id", "response"], index_col="id"
+    ).index.tolist()
+    test_inds = pd.read_csv(
+        os.path.join(split_dir, test_ind_f), usecols=["id", "response"], index_col="id"
+    ).index.tolist()
+
+    return train_inds, validation_inds, test_inds
+
+
 def get_train_eval_indices(split_dir, eval_set):
     train_f = os.path.join(split_dir, "training_set.csv")
     eval_f = os.path.join(split_dir, f"{eval_set}_set.csv")
@@ -148,11 +179,18 @@ def setup_save_dir(model_type, eval_set, wandb_group, run_id, base_dir="../../re
     return base
 
 
-def train_model_rf(train_dataset, min_samples_split, random_seed=None):
+def train_model_rf(train_dataset, min_samples_split=None, max_depth=None, min_samples_leaf=1, random_seed=None):
     logger.info("Training Random Forest model")
     x_train, y_train = train_dataset.x, train_dataset.y.ravel()
 
-    model = model_selection.run_rf(x_train, y_train, random_seed=random_seed, min_samples_split=min_samples_split)
+    model = model_selection.run_rf(
+        x_train,
+        y_train,
+        random_seed=random_seed,
+        min_samples_split=min_samples_split,
+        max_depth=max_depth,
+        min_samples_leaf=min_samples_leaf,
+    )
     return model
 
 
@@ -216,12 +254,37 @@ def evaluate_and_log_results(model, train_dataset, test_dataset, model_type, sav
     )
 
 
+def evaluate_on_train_val_test(model, train_dset, val_dset, test_dset, hparams):
+    """
+    Evaluate a trained model on train, val, and test splits using PnetDataset.
+
+    Args:
+        model: Trained model object
+        genetic_data: Input feature data (e.g., DataFrame or tensor)
+        y: Target labels (Pandas Series or compatible)
+        train_dset, val_dset, test_dset: PnetDataset objects for train, validation, and test sets
+        hparams: Dict of hyperparameters including model_type and save_dir
+    """
+    for split_name, split_dset in zip(["train", "validation", "test"], [train_dset, val_dset, test_dset]):
+        logger.info(f"Evaluating model on {split_name} set")
+
+        report_and_eval.evaluate_interpret_save(
+            model=model,
+            pnet_dataset=split_dset,
+            model_type=hparams["model_type"],
+            who=split_name,
+            save_dir=hparams["save_dir"],
+        )
+    return
+
+
 def main():
     args = parse_arguments()
     wandb.login()
     run = wandb.init(project=args.wandb_project, group=args.wandb_group)
     wandb_run_id = wandb.run.id
 
+    logger.info(f"Starting run with ID: {wandb_run_id}")
     # Set environment
     Pnet.set_random_seeds(args.seed, turn_off_cuDNN=False)
     torch.set_num_threads(args.cpus)
@@ -232,7 +295,12 @@ def main():
     genetic_data = {k: v for k, v in genetic_data.items() if k in args.datasets}
 
     # Load splits
-    train_inds, eval_inds, train_f, eval_f = get_train_eval_indices(args.data_split_dir, args.evaluation_set)
+    # train_inds, eval_inds, train_f, eval_f = get_train_eval_indices(args.data_split_dir, args.evaluation_set)
+    train_inds, validation_inds, test_inds = get_train_val_test_indices(args.data_split_dir)
+    if args.evaluation_set == "validation":
+        eval_inds = validation_inds
+    elif args.evaluation_set == "test":
+        eval_inds = test_inds
 
     # Setup save path
     save_dir = setup_save_dir(args.model_type, args.evaluation_set, args.wandb_group, wandb_run_id)
@@ -256,22 +324,30 @@ def main():
         "early_stopping": True,
         "batch_size": 64,
         "verbose": True,
-        "train_set_indices_f": train_f,
-        "evaluation_set_indices_f": eval_f,
+        "data_split_dir": args.data_split_dir,
         "train_set_indices": train_inds,
         "evaluation_set_indices": eval_inds,
+        "test_set_indices": test_inds,
         "datasets": list(genetic_data.keys()),
         "random_seed": args.seed,
         "model_type": args.model_type,
         "evaluation_set": args.evaluation_set,
         "save_dir": save_dir,
     }
-
     wandb.config.update(hparams)
 
-    # Training & evaluation
+    # Training
+    logger.info("Prepping datasets & training...")
+    test_dataset = pnet_loader.generate_dataset_from_indices(
+        genetic_data=genetic_data,
+        target=y,
+        dset_inds=test_inds,
+        additional_data=confounder_df,
+        gene_set=None,
+        seed=args.seed,
+    )
     if args.model_type in ["rf", "bdt"]:
-        train_dataset, test_dataset = pnet_loader.generate_train_test(
+        train_dataset, validation_dataset = pnet_loader.generate_train_test(
             genetic_data,
             additional_data=confounder_df,
             target=y,
@@ -279,20 +355,32 @@ def main():
             test_inds=eval_inds,
             gene_set=None,
         )
+        # concatenate additional data to the input_df and x to match RF/BDT expectations
         train_dataset.input_df = pd.concat([train_dataset.input_df, train_dataset.additional_data], axis=1)
         train_dataset.x = torch.cat([train_dataset.x, train_dataset.additional], dim=1)
+        validation_dataset.input_df = pd.concat(
+            [validation_dataset.input_df, validation_dataset.additional_data], axis=1
+        )
+        validation_dataset.x = torch.cat([validation_dataset.x, validation_dataset.additional], dim=1)
         test_dataset.input_df = pd.concat([test_dataset.input_df, test_dataset.additional_data], axis=1)
         test_dataset.x = torch.cat([test_dataset.x, test_dataset.additional], dim=1)
 
         if args.model_type == "rf":
-            model = train_model_rf(train_dataset, args.min_samples_split)
+            rf_params = {
+                "min_samples_leaf": args.min_samples_leaf,
+                "min_samples_split": args.min_samples_split
+            }
+            wandb.config.update(rf_params)
+            model = train_model_rf(train_dataset, min_samples_split=args.min_samples_split, max_depth=args.max_depth, min_samples_leaf=args.min_samples_leaf, random_seed=args.seed)
         else:
-            model, _, _ = train_model_bdt(train_dataset, test_dataset, args.evaluation_set)
+            model, _, _ = train_model_bdt(train_dataset, validation_dataset, args.evaluation_set)
 
     elif args.model_type == "pnet":
-        model, _, _, train_dataset, test_dataset = train_model_pnet(hparams, genetic_data, confounder_df, y)
+        model, _, _, train_dataset, validation_dataset = train_model_pnet(hparams, genetic_data, confounder_df, y)
 
-    evaluate_and_log_results(model, train_dataset, test_dataset, args.model_type, save_dir, args.evaluation_set)
+    # Evaluate and log results
+    logger.info("Model training complete. Evaluating model...")
+    evaluate_on_train_val_test(model, train_dataset, validation_dataset, test_dataset, hparams)
 
     logger.info("Run complete. Finishing wandb.")
     wandb.finish()

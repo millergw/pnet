@@ -370,6 +370,94 @@ def get_indicies(genetic_data, target, additional_data=None):
     return inds
 
 
+def generate_dataset_from_indices(
+    genetic_data,
+    target,
+    dset_inds,
+    gene_set=None,
+    additional_data=None,
+    seed=None,
+    shuffle_labels=False,
+):
+    """
+    Takes all data modalities to be used and generates a train and test DataSet with a given split.
+    :param genetic_data: Dict(str: pd.DataFrame); requires a dict containing a pd.DataFrame for each data modality
+         and the str identifier. Paired samples should have matching indicies across Dataframes.
+    :param target: pd.DataFrame or pd.Series; requires a single pandas Dataframe or Series with target variable
+        paired per sample index. Target can be binary or continuous.
+    :param dset_inds: List(str); List of sample indices to be included in the dataset.
+    :param gene_set: List(str); List of genes to be considered, default is None and considers all genes found in every
+        data modality.
+    :param additional_data: pd.DataFrame; Dataframe with additional information per sample. Sample IDs should match
+    :param seed: int; Random seed to be used for train/test splits.
+    :return:
+    """
+    print(f"Given {len(genetic_data)} Input modalities")
+    inds = get_indicies(genetic_data, target, additional_data)
+    random.seed(seed)
+    random.shuffle(inds)
+    dset_inds = list(set(inds).intersection(dset_inds))
+
+    print(f"Initializing PnetDataset with {len(dset_inds)} samples")
+    dset = PnetDataset(genetic_data, target, dset_inds, additional_data=additional_data, gene_set=gene_set)
+
+    # Negative control: Shuffle labels for prediction
+    if shuffle_labels:
+        dset = shuffle_data_labels(dset)
+    return dset
+
+
+def generate_train_val_test_datasets(
+    genetic_data,
+    target,
+    train_inds,
+    validation_inds,
+    test_inds,
+    gene_set=None,
+    additional_data=None,
+    seed=None,
+    shuffle_labels=False,
+):
+    """
+    Takes all data modalities to be used and generates a train and test DataSet with a given split.
+    :param genetic_data: Dict(str: pd.DataFrame); requires a dict containing a pd.DataFrame for each data modality
+         and the str identifier. Paired samples should have matching indicies across Dataframes.
+    :param target: pd.DataFrame or pd.Series; requires a single pandas Dataframe or Series with target variable
+        paired per sample index. Target can be binary or continuous.
+    :param gene_set: List(str); List of genes to be considered, default is None and considers all genes found in every
+        data modality.
+    :param additional_data: pd.DataFrame; Dataframe with additional information per sample. Sample IDs should match
+    :param test_split: float; Fraction of samples to be used for testing.
+    :param seed: int; Random seed to be used for train/test splits.
+    :return:
+    """
+    print(f"Given {len(genetic_data)} Input modalities")
+    inds = get_indicies(genetic_data, target, additional_data)
+    random.seed(seed)
+    random.shuffle(inds)
+    assert train_inds and validation_inds and test_inds, "train_inds, validation_inds and test_inds must be provided"
+
+    train_inds = list(set(inds).intersection(train_inds))
+    validation_inds = list(set(inds).intersection(validation_inds))
+    test_inds = list(set(inds).intersection(test_inds))
+
+    print("Initializing Train Dataset")
+    train_dataset = PnetDataset(genetic_data, target, train_inds, additional_data=additional_data, gene_set=gene_set)
+    print("Initializing Validation Dataset")
+    validation_dataset = PnetDataset(
+        genetic_data, target, validation_inds, additional_data=additional_data, gene_set=gene_set
+    )
+    print("Initializing Test Dataset")
+    test_dataset = PnetDataset(genetic_data, target, test_inds, additional_data=additional_data, gene_set=gene_set)
+
+    # Negative control: Shuffle labels for prediction
+    if shuffle_labels:
+        train_dataset = shuffle_data_labels(train_dataset)
+        validation_dataset = shuffle_data_labels(validation_dataset)
+        test_dataset = shuffle_data_labels(test_dataset)
+    return train_dataset, validation_dataset, test_dataset
+
+
 def generate_train_test(
     genetic_data,
     target,

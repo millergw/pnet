@@ -1,7 +1,18 @@
+import logging
 import subprocess
 from collections import defaultdict
 
 import wandb
+
+logging.basicConfig(
+    encoding="utf-8",
+    format="%(asctime)s %(levelname)-8s [%(name)s] %(message)s",
+    level=logging.INFO,
+    datefmt="%Y-%m-%d %H:%M:%S",
+    force=True,
+)
+
+logger = logging.getLogger(__name__)
 
 
 def fetch_grouped_runs(project_name, sweep_id, model_type):
@@ -52,23 +63,27 @@ def run_script_for_each_group(script_path, project_name, grouped_runs):
             train_set,
             "--eval_set",
             eval_set,
+            "--test_set",
+            "../../../pnet_germline/data/pnet_database/prostate/splits/test_set.csv",
         ]
-        print(f"Executing: {' '.join(command)}")
+        logger.info(f"Executing: {' '.join(command)}")
         subprocess.run(command)
 
 
 if __name__ == "__main__":
     # Parameters
     PROJECT_NAME = "prostate_met_status"
-    SWEEP_ID = "cmlmrw2s"
+    SWEEP_ID = "rv4lm363"
     MODEL_TYPE = "pnet"
     SCRIPT_PATH = "./analyze_misclassifications.py"
 
-    # Step 1: Fetch grouped runs
-    print(f"Fetching grouped runs for project '{PROJECT_NAME}', sweep '{SWEEP_ID}', model type '{MODEL_TYPE}'...")
+    # Step 1: Fetch grouped runs since it takes a long time to load the data, and this way we just load it once per training/evaluation set group
+    logger.info(
+        f"Fetching runs grouped by training/evaluation sets for project '{PROJECT_NAME}', sweep '{SWEEP_ID}', model type '{MODEL_TYPE}'..."
+    )
     grouped_runs = fetch_grouped_runs(PROJECT_NAME, SWEEP_ID, MODEL_TYPE)
-    print(f"Found {len(grouped_runs)} unique training/evaluation index set combination(s).")
+    logger.info(f"Found {len(grouped_runs)} unique training/evaluation index set combination(s).")
 
     # Step 2: Execute script once per group
-    print(f"Executing script '{SCRIPT_PATH}' for each group...")
+    logger.info(f"Executing script '{SCRIPT_PATH}' for each group...")
     run_script_for_each_group(SCRIPT_PATH, PROJECT_NAME, grouped_runs)

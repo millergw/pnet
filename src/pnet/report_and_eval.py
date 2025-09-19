@@ -247,12 +247,19 @@ def get_performance_metrics(who, y_trues, y_preds, y_probas, save_dir=None):
         with open(p, "w") as json_file:
             json.dump(metric_dict, json_file)
 
-    # TODO: should I break the W&B pieces into a different function?
-    logger.info(f"Saving {who} set metrics to W&B:")
-    for k, v in metric_dict.items():
-        wandb.run.summary[k] = v
-
     return metric_dict
+
+
+def log_metrics_to_wandb(metric_dict):
+    """
+    Logs a dictionary of metrics to Weights & Biases summary.
+    """
+    if wandb.run is not None:
+        for k, v in metric_dict.items():
+            wandb.run.summary[k] = v
+        logger.info("Logged metrics to W&B.")
+    else:
+        logger.warning("W&B is not initialized — skipping logging.")
 
 
 def log_plots_to_wandb(who, y_trues, y_preds, y_probas_2col):
@@ -452,6 +459,7 @@ def evaluate_interpret_save(model, who, model_type, pnet_dataset=None, x=None, y
         metric_dict = get_performance_metrics(
             who, y, y_preds, y_probas, save_dir
         )  # TODO: this is universal, and should get pulled out
+        log_metrics_to_wandb(metric_dict)
 
         if who != "train":
             gene_feature_importances, additional_feature_importances, gene_importances, layer_importance_scores = (
@@ -464,7 +472,7 @@ def evaluate_interpret_save(model, who, model_type, pnet_dataset=None, x=None, y
             logger.warn(
                 "Skipping feature importances for the training set. Causing runs to crash due to OOM errors, and don't think I need these anyway."
             )
-            return metric_dict, None, None, None
+            return metric_dict, None, None, None, None
 
         return (
             metric_dict,
@@ -486,6 +494,7 @@ def evaluate_interpret_save(model, who, model_type, pnet_dataset=None, x=None, y
 
         save_predictions_and_probs(save_dir, who, y, y_preds, y_probas[:, 1], indices=input_df.index.tolist())
         metric_dict = get_performance_metrics(who, y, y_preds, y_probas[:, 1], save_dir)
+        log_metrics_to_wandb(metric_dict)
         gene_feature_importances = get_sklearn_feature_importances(model, who=who, input_df=input_df, save_dir=save_dir)
         if who != "train":
             log_plots_to_wandb(who, y, y_preds, y_probas)

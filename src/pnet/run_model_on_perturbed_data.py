@@ -127,6 +127,18 @@ def parse_arguments():
         default=None,
         help="Suffix for perturbation setting as defined in the perturbation config file. This suffix is the identifier for the perturbation that was applied to the data.",
     )
+    parser.add(
+        "--max_depth",
+        type=int,
+        default=None,
+        help="Maximum depth of the tree for Random Forest (default: None, which means no limit. Use with caution as it can lead to overfitting)",
+    )
+    parser.add(
+        "--min_samples_leaf",
+        type=int,
+        default=1,
+        help="Minimum number of samples required to be at a leaf node for Random Forest (default: 1)",
+    )
 
     return parser.parse_args()
 
@@ -163,6 +175,26 @@ def load_input_data(config, input_dir, perturbed_data_dir=None, perturbed_target
     return genetic_data, confounder_df, target_df
 
 
+def get_train_val_test_indices(
+    split_dir, train_ind_f="training_set.csv", validation_ind_f="validation_set.csv", test_ind_f="test_set.csv"
+):
+    """
+    Load train, validation, and test indices from CSV files in the specified directory.
+    The CSV files should contain 'id' and 'response' columns.
+    """
+    train_inds = pd.read_csv(
+        os.path.join(split_dir, train_ind_f), usecols=["id", "response"], index_col="id"
+    ).index.tolist()
+    validation_inds = pd.read_csv(
+        os.path.join(split_dir, validation_ind_f), usecols=["id", "response"], index_col="id"
+    ).index.tolist()
+    test_inds = pd.read_csv(
+        os.path.join(split_dir, test_ind_f), usecols=["id", "response"], index_col="id"
+    ).index.tolist()
+
+    return train_inds, validation_inds, test_inds
+
+
 def get_train_eval_indices(split_dir, eval_set):
     train_f = os.path.join(split_dir, "training_set.csv")
     eval_f = os.path.join(split_dir, f"{eval_set}_set.csv")
@@ -182,11 +214,18 @@ def setup_save_dir(model_type, eval_set, wandb_group, run_id, base_dir="../../re
     return base
 
 
-def train_model_rf(train_dataset, min_samples_split, random_seed=None):
+def train_model_rf(train_dataset, min_samples_split, max_depth=None, random_seed=None, min_samples_leaf=1):
     logger.info("Training Random Forest model")
     x_train, y_train = train_dataset.x, train_dataset.y.ravel()
 
-    model = model_selection.run_rf(x_train, y_train, random_seed=random_seed, min_samples_split=min_samples_split)
+    model = model_selection.run_rf(
+        x_train,
+        y_train,
+        random_seed=random_seed,
+        min_samples_split=min_samples_split,
+        max_depth=max_depth,
+        min_samples_leaf=min_samples_leaf,
+    )
     return model
 
 
@@ -213,10 +252,9 @@ def train_model_bdt(train_dataset, test_dataset, evaluation_set):
     return model, train_scores, test_scores
 
 
-def train_model_pnet(hparams, genetic_data, additional, y, delete_model_after_training=False):
+def train_model_pnet(hparams, genetic_data, additional, y):
     logger.info("Training PNET model")
     model_save_path = os.path.join(hparams["save_dir"], "model.pt")
-
     model, train_losses, test_losses, train_dataset, test_dataset = Pnet.run(
         genetic_data,
         y,
@@ -239,14 +277,7 @@ def train_model_pnet(hparams, genetic_data, additional, y, delete_model_after_tr
     wandb.log({"convergence plot": plt})
     report_and_eval.savefig(plt, os.path.join(hparams["save_dir"], "loss_over_time"))
 
-    if delete_model_after_training:
-        try:
-            os.remove(model_save_path)
-            logger.info(f"Deleted model file at: {model_save_path}")
-        except OSError as e:
-            logger.warning(f"Failed to delete model file: {e}")
-
-    return model, train_losses, test_losses, train_dataset, test_dataset
+    return model, train_losses, test_losses, train_dataset, test_dataset, model_save_path
 
 
 def evaluate_and_log_results(model, train_dataset, test_dataset, model_type, save_dir, eval_set_name):
@@ -257,6 +288,43 @@ def evaluate_and_log_results(model, train_dataset, test_dataset, model_type, sav
     report_and_eval.evaluate_interpret_save(
         model=model, pnet_dataset=test_dataset, model_type=model_type, who=eval_set_name, save_dir=save_dir
     )
+
+
+def evaluate_on_train_val_test(model, train_dset, val_dset, test_dset, hparams):
+    """
+    Evaluate a trained model on train, val, and test splits using PnetDataset.
+
+    Args:
+        model: Trained model object
+        genetic_data: Input feature data (e.g., DataFrame or tensor)
+        y: Target labels (Pandas Series or compatible)
+        train_dset, val_dset, test_dset: PnetDataset objects for train, validation, and test sets
+        hparams: Dict of hyperparameters including model_type and save_dir
+    """
+    for split_name, split_dset in zip(["train", "validation", "test"], [train_dset, val_dset, test_dset]):
+        logger.info(f"Evaluating model on {split_name} set")
+
+        report_and_eval.evaluate_interpret_save(
+            model=model,
+            pnet_dataset=split_dset,
+            model_type=hparams["model_type"],
+            who=split_name,
+            save_dir=hparams["save_dir"],
+        )
+    return
+
+
+def cleanup(model_save_path, delete_model_after_training=False):
+    """
+    Delete the saved model if delete_model_after_training is True.
+    """
+    if delete_model_after_training:
+        try:
+            os.remove(model_save_path)
+            logger.info(f"Deleted model file at: {model_save_path}")
+        except OSError as e:
+            logger.warning(f"Failed to delete model file: {e}")
+    return
 
 
 def main():
@@ -295,7 +363,12 @@ def main():
     }  # TODO: this could break if you don't realize you aren't including the perturbed dataset
 
     # Load splits
-    train_inds, eval_inds, train_f, eval_f = get_train_eval_indices(args.data_split_dir, args.evaluation_set)
+    # train_inds, eval_inds, train_f, eval_f = get_train_eval_indices(args.data_split_dir, args.evaluation_set)
+    train_inds, validation_inds, test_inds = get_train_val_test_indices(args.data_split_dir)
+    if args.evaluation_set == "validation":
+        eval_inds = validation_inds
+    elif args.evaluation_set == "test":
+        eval_inds = test_inds
 
     # Setup save path
     save_dir = setup_save_dir(args.model_type, args.evaluation_set, args.wandb_group, wandb.run.id)
@@ -307,7 +380,7 @@ def main():
 
     # Build hparams
     hparams = {
-        "wandb.run.id_that_created_inputs": args.input_data_wandb_id,
+        "wandb_run_id_that_created_inputs": args.input_data_wandb_id,
         "nbr_gene_inputs": len(genetic_data),
         "dropout": 0.2,
         "input_dropout": args.input_dropout,
@@ -319,15 +392,18 @@ def main():
         "early_stopping": True,
         "batch_size": 64,
         "verbose": True,
-        "train_set_indices_f": train_f,
-        "evaluation_set_indices_f": eval_f,
+        "data_split_dir": args.data_split_dir,
         "train_set_indices": train_inds,
         "evaluation_set_indices": eval_inds,
+        "test_set_indices": test_inds,
         "datasets": list(genetic_data.keys()),
         "random_seed": args.seed,
         "model_type": args.model_type,
         "evaluation_set": args.evaluation_set,
         "save_dir": save_dir,
+        "delete_model_after_training": True,  # Set to True to delete the model file after training
+        "min_samples_split": args.min_samples_split,
+        "max_depth": args.max_depth,
     }
 
     if args.perturbed_data_dir:
@@ -358,9 +434,18 @@ def main():
     # Adding hparams to wandb config
     wandb.config.update(hparams)
 
-    # Training & evaluation
+    # Training
+    logger.info("Prepping datasets & training...")
+    test_dataset = pnet_loader.generate_dataset_from_indices(
+        genetic_data=genetic_data,
+        target=y,
+        dset_inds=test_inds,
+        additional_data=confounder_df,
+        gene_set=None,
+        seed=args.seed,
+    )
     if args.model_type in ["rf", "bdt"]:
-        train_dataset, test_dataset = pnet_loader.generate_train_test(
+        train_dataset, validation_dataset = pnet_loader.generate_train_test(
             genetic_data,
             additional_data=confounder_df,
             target=y,
@@ -368,22 +453,38 @@ def main():
             test_inds=eval_inds,
             gene_set=None,
         )
+        # concatenate additional data to the input_df and x to match RF/BDT expectations
         train_dataset.input_df = pd.concat([train_dataset.input_df, train_dataset.additional_data], axis=1)
         train_dataset.x = torch.cat([train_dataset.x, train_dataset.additional], dim=1)
+        validation_dataset.input_df = pd.concat(
+            [validation_dataset.input_df, validation_dataset.additional_data], axis=1
+        )
+        validation_dataset.x = torch.cat([validation_dataset.x, validation_dataset.additional], dim=1)
         test_dataset.input_df = pd.concat([test_dataset.input_df, test_dataset.additional_data], axis=1)
         test_dataset.x = torch.cat([test_dataset.x, test_dataset.additional], dim=1)
 
         if args.model_type == "rf":
-            model = train_model_rf(train_dataset, args.min_samples_split)
+            model = train_model_rf(
+                train_dataset, args.min_samples_split, args.max_depth, args.seed, args.min_samples_leaf
+            )
         else:
-            model, _, _ = train_model_bdt(train_dataset, test_dataset, args.evaluation_set)
+            model, _, _ = train_model_bdt(train_dataset, validation_dataset, args.evaluation_set)
 
     elif args.model_type == "pnet":
-        model, _, _, train_dataset, test_dataset = train_model_pnet(
-            hparams, genetic_data, confounder_df, y, delete_model_after_training=True
+        model, _, _, train_dataset, validation_dataset, model_save_path = train_model_pnet(
+            hparams, genetic_data, confounder_df, y
         )
 
-    evaluate_and_log_results(model, train_dataset, test_dataset, args.model_type, save_dir, args.evaluation_set)
+    # Evaluate and log results
+    logger.info("Model training complete. Evaluating model...")
+    evaluate_on_train_val_test(model, train_dataset, validation_dataset, test_dataset, hparams)
+
+    # Clean up bulky pytorch model file if specified
+    if args.model_type == "pnet":
+        cleanup(
+            model_save_path=model_save_path,
+            delete_model_after_training=hparams["delete_model_after_training"],
+        )
 
     logger.info("Run complete. Finishing wandb.")
     wandb.finish()

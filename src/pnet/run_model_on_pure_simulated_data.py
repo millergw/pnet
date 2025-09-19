@@ -15,12 +15,13 @@ from pnet import Pnet, pnet_loader, report_and_eval, util
 logging.basicConfig(
     encoding="utf-8",
     format="%(asctime)s %(levelname)-8s [%(name)s] %(message)s",
-    level=logging.DEBUG,
+    level=logging.INFO,
     datefmt="%Y-%m-%d %H:%M:%S",
     # force=True,
 )
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 def compute_mu1_from_or(mu0, OR):
@@ -231,23 +232,19 @@ def simulate_dataset(
     R0 = make_block_correlation_matrix(num_genes, mod0_genes, sigma)
     
     logger.debug("Compute correlation (R) heatmaps...")
-    # logger.debug(visualize_matrix(R1, gene_indices=mod1_genes, title="R1 (mod1 genes)"))
-    # logger.debug(visualize_matrix(R0, gene_indices=mod0_genes, title="R0 (mod0 genes)"))
-    # logger.debug(visualize_matrix(R1, gene_indices=None, title="R1 all genes"))
-    wandb.log({f"R1": wandb.Image(visualize_matrix(R1, gene_indices=mod1_genes, title="R1 (mod1 genes)"))})
-    wandb.log({f"R0": wandb.Image(visualize_matrix(R0, gene_indices=mod0_genes, title="R0 (mod0 genes)"))})
-    wandb.log({f"R1": wandb.Image(visualize_matrix(R1, gene_indices=None, title="R1 (all genes)"))})
+    wandb.log({f"R1 (mod1 genes)": wandb.Image(visualize_matrix(R1, gene_indices=mod1_genes, title=f"R1 (mod1 genes), sigma {sigma}"))})
+    wandb.log({f"R0 (mod0 genes)": wandb.Image(visualize_matrix(R0, gene_indices=mod0_genes, title=f"R0 (mod0 genes), sigma {sigma}"))})
+    wandb.log({f"R1 (all genes)": wandb.Image(visualize_matrix(R1, gene_indices=None, title=f"R1 (all genes), sigma {sigma}"))})
+    plt.close('all')
 
     Sigma1 = correlation_to_covariance(R1, mu1, mode=mode)
     Sigma0 = correlation_to_covariance(R0, mu0, mode=mode)
     
     logger.debug("Compute covariance (Sigma) heatmaps...")
-    # logger.debug(visualize_matrix(Sigma1, gene_indices=mod1_genes, title="Sigma1 (mod1 genes)"))
-    # logger.debug(visualize_matrix(Sigma0, gene_indices=mod0_genes, title="Sigma0 (mod0 genes)"))
-    # logger.debug(visualize_matrix(Sigma1, gene_indices=None, title="Sigma1 all genes"))
-    wandb.log({f"Sigma1": wandb.Image(visualize_matrix(Sigma1, gene_indices=mod1_genes, title="Sigma1 (mod1 genes)"))})
-    wandb.log({f"Sigma0": wandb.Image(visualize_matrix(Sigma0, gene_indices=mod0_genes, title="Sigma0 (mod0 genes)"))})
-    wandb.log({f"Sigma1": wandb.Image(visualize_matrix(Sigma1, gene_indices=None, title="Sigma1 (all genes)"))})
+    wandb.log({f"Sigma1 (mod1 genes)": wandb.Image(visualize_matrix(Sigma1, gene_indices=mod1_genes, title=f"Sigma1 (mod1 genes, sigma {sigma})"))})
+    wandb.log({f"Sigma0 (mod0 genes)": wandb.Image(visualize_matrix(Sigma0, gene_indices=mod0_genes, title=f"Sigma0 (mod0 genes, sigma {sigma})"))})
+    wandb.log({f"Sigma1 (all genes)": wandb.Image(visualize_matrix(Sigma1, gene_indices=None, title=f"Sigma1 (all genes), sigma {sigma}"))})
+    plt.close('all')
 
     if sample_binary:
         X1 = sample_binary_genotypes(mu1, Sigma1, n1)
@@ -255,20 +252,6 @@ def simulate_dataset(
     else:
         X1 = sample_continuous_genotypes(mu1, Sigma1, n1)
         X0 = sample_continuous_genotypes(mu0, Sigma0, n0)
-
-    logger.debug("Compute empirical frequencies per gene (i.e., mean across rows)...")
-    emp_mu0 = np.round(X0.mean(axis=0), 2)
-    emp_mu1 = np.round(X1.mean(axis=0), 2)
-    logger.debug(f"mu0, class 0: {mu0}")
-    logger.debug(f"mu1, class 1: {mu1}")
-    logger.debug(f"empirical frequencies per gene, class 0: {emp_mu0}")
-    logger.debug(f"empirical frequencies per gene, class 1: {emp_mu1}")
-    # Optional: find genes with all 0s
-    zero_var_genes_0 = np.where(emp_mu0 == 0)[0]
-    zero_var_genes_1 = np.where(emp_mu1 == 0)[0]
-    logger.debug(f"Genes with all 0s in class 0 that are in mod1: {[i for i in zero_var_genes_0 if i in mod1_genes]}")
-    logger.debug(f"Genes with all 0s in class 1 that are in mod1: {[ i for i in zero_var_genes_1 if i in mod1_genes]}")
-
 
     y = np.concatenate([np.ones(n1), np.zeros(n0)])
     X = np.vstack([X1, X0])
@@ -359,9 +342,9 @@ def train_model_pnet(hparams, genetic_data, y, train_inds=None, test_inds=None):
 
     logger.info("Logging loss curve")
     plt = report_and_eval.get_loss_plot(train_losses=train_losses, test_losses=test_losses)
-    wandb.log({"convergence plot": plt})
+    wandb.log({"convergence plot": wandb.Image(plt)})
     report_and_eval.savefig(plt, os.path.join(hparams["save_dir"], "loss_over_time"))
-
+    plt.close()
     return model, train_losses, test_losses, train_dataset, test_dataset, model_save_path
 
 
@@ -433,6 +416,7 @@ def parse_args():
         choices=["binary", "continuous"],
         help="Sampling type: 'binary' or 'continuous' (default: continuous)",
     )
+    parser.add_argument("--epochs", type=int, default=500, help="Number of epochs to run ML model")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--model_type", type=str, default="pnet", help="Model type (default: pnet)")
     parser.add_argument("--evaluation_set", type=str, default="validation", help="Evaluation set (default: validation)")
@@ -453,7 +437,7 @@ def main():
 
     # Build hparams
     base_hparams = {
-        "epochs": 400,
+        "epochs": args.epochs,
         "early_stopping": True,
         "batch_size": 64,
         "verbose": False,

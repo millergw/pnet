@@ -11,7 +11,8 @@ The simulation process involves:
 3. Splitting the samples into two groups: controls (class 0) and cases (class 1), with a fixed fraction of samples assigned as cases.
 4. Flipping a defined proportion of 1s into the selected gene column for both control and case groups, based on:
    - Control allele frequency
-   - Odds ratio (used to calculate case frequency: case_freq = min(control_freq * OR, 1.0))
+   - Odds ratio (used to calculate case frequency: case_freq = (OR * control_freq) / (1 - control_freq + OR * control_freq)
+        N.B.: the Relative Risk = min(control_freq * OR, 1.0))
 5. Saving the resulting genotype matrix and associated binary labels to disk.
 6. Logging metadata for each dataset in a summary CSV and to Weights & Biases (wandb).
 
@@ -53,9 +54,9 @@ logger.setLevel(logging.INFO)
 # === WANDB INIT === #
 wandb.login()
 wandb.init(
-    project="pnet_data_simulation",
-    name="generate_perturbed_genotypes",
-    notes="Generate perturbed genotype datasets for testing model performance",
+    project="prostate_met_status",
+    group="simulation_single_gene_perturbation_001",
+    notes="Generate perturbed genotype datasets for testing model performance. Corrected formula for case_freq so calculating based on OR (not relative risk).",
 )
 
 
@@ -132,6 +133,39 @@ def save_split(who, labels, indices, save_dir):
     df_split.to_csv(os.path.join(save_dir, f"{who}_set.csv"))
 
 
+def compute_case_freq_from_or(control_freq: float, odds_ratio: float) -> float:
+    """
+    Calculate case group mutation frequency from control group frequency and odds ratio.
+
+    Formula:
+        case_freq = (OR * control_freq) / (1 - control_freq + OR * control_freq)
+
+    Where:
+        - OR: odds ratio of mutation in case vs. control group
+        - control_freq: mutation frequency in the control group
+        - case_freq: resulting mutation frequency in the case group
+
+    This formula derives from the definition of odds ratio:
+        OR = (P_case / (1 - P_case)) / (P_control / (1 - P_control))
+    and is solved for P_case.
+
+    Args:
+        control_freq (float): Mutation frequency in the control group (between 0 and 1).
+        odds_ratio (float): Desired odds ratio for the case group relative to control.
+
+    Returns:
+        float: Computed mutation frequency in the case group.
+    """
+    if not (0 <= control_freq < 1):
+        raise ValueError("control_freq must be in the interval [0, 1).")
+    if odds_ratio <= 0:
+        raise ValueError("odds_ratio must be positive.")
+
+    numerator = odds_ratio * control_freq
+    denominator = 1 - control_freq + numerator
+    return numerator / denominator
+
+
 # === CONFIGURATION === #
 DATA_DIR = "/mnt/disks/gmiller_data1/pnet_germline/processed/wandb-group-data_prep_germline_tier12_and_somatic/converted-IDs-to-somatic_imputed-germline_True_imputed-somatic_False_paired-samples-True/wandb-run-id-u5yt90p1"
 SAVE_DIR = f"/mnt/disks/gmiller_data1/pnet_germline/processed/perturbed_genotype_datasets/p1000_somatic_mut/wandb-run-id-{wandb.run.id}"
@@ -158,11 +192,11 @@ n_genes = len(genes)
 logger.info(f"Loaded dataset with shape: {df.shape}")
 
 # === PARAMETERS === #
-odds_ratios = [1, 1.1, 2, 10]
+odds_ratios = [1, 1.1, 2, 10, 30]
 control_frequencies = [0.001, 0.01, 0.05, 0.1, 0.2, 0.5]
 fractions_samples = [0.5]
 gene_to_perturb = "AR"
-n_features_to_keep = [10, 100, 1000]  # add n_genes if want to run all
+n_features_to_keep = [10, 100]  # add n_genes if want to run all
 
 assert gene_to_perturb in df.columns, f"Gene '{gene_to_perturb}' not found in dataset."
 
@@ -222,7 +256,8 @@ for n_features in n_features_to_keep:
                 f"Generating dataset with control_freq: {control_freq}, odds_ratio: {odds_ratio}, gene_to_perturb: {gene_to_perturb}"
             )
             # Determine case frequency from control_freq and odds_ratio
-            case_freq = min(control_freq * odds_ratio, 1.0)  # Cap at 1.0 to avoid invalid probabilities
+            # case_freq = min(control_freq * odds_ratio, 1.0)  # Cap at 1.0 to avoid invalid probabilities
+            case_freq = compute_case_freq_from_or(control_freq, odds_ratio)
 
             df_copy = df_subset.copy()
             df_copy[gene_to_perturb] = 0  # Clear out the gene first
